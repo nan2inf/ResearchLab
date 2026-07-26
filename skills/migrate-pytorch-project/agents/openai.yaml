@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate PyTorch Project"
+  short_description: "Adapt existing PyTorch research projects safely"
+  default_prompt: "Use $migrate-pytorch-project to convert an existing PyTorch project into a new ResearchLab-compatible directory."

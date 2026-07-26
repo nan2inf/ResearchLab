@@ -1,0 +1,48 @@
+schema_version: 1
+name: synthetic-classification
+description: 无需下载数据的 PyTorch 分类示例，演示实时指标、多卡、在线增强与显存预加载。
+environment:
+  python: ">=3.10"
+  torch: ">=2.0"
+exclude:
+  - "*.png"
+tasks:
+  train:
+    entrypoint: train.py
+    launcher: auto
+    parameters:
+      epochs:
+        type: int
+        default: 12
+        min: 1
+        max: 1000
+        help: 训练轮数
+      eval_every:
+        type: int
+        default: 2
+        min: 1
+        help: 每隔多少轮执行评测
+      batch_size:
+        type: int
+        default: 128
+        min: 1
+      learning_rate:
+        type: float
+        default: 0.01
+        min: 0.000001
+      samples:
+        type: int
+        default: 4096
+        min: 128
+      noise_std:
+        type: float
+        default: 0.08
+        min: 0
+        help: 在线数据增强的噪声强度
+      preload_device:
+        type: bool
+        default: false
+        help: 在训练前将全部数据加载到所选设备
+      seed:
+        type: int
+        default: 7

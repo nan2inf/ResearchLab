@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "researchlab"
+version = "0.1.0"
+description = "Local-first PyTorch research runner with SSH execution and experiment tracking."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110,<1",
+  "packaging>=23,<27",
+  "pydantic>=2.7,<3",
+  "PyYAML>=6,<7",
+  "uvicorn>=0.27,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx>=0.27,<1",
+  "pytest>=8,<10",
+]
+
+[project.scripts]
+researchlab = "researchlab.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+researchlab = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
