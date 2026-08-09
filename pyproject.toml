@@ -7,6 +7,13 @@ name = "researchlab"
 version = "0.1.0"
 description = "Local-first PyTorch research runner with SSH execution and experiment tracking."
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+  { name = "nan2inf", email = "nan2inf@outlook.com" },
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+]
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.110,<1",

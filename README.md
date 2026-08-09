@@ -1,7 +1,7 @@
 # ResearchLab
 
-> Working name. Local-first PyTorch research control panel for Windows/Linux,
-> with direct SSH execution on Linux GPU/NPU servers.
+Local-first PyTorch research control panel for Windows/Linux, with direct SSH
+execution on Linux GPU/NPU servers.
 
 ResearchLab keeps the training loop in the researcher's hands. It standardizes
 only four boundaries: project parameters, launch commands, run directories,
@@ -97,3 +97,7 @@ agents, services, and cluster scheduling. Ray and Lightning provide more
 opinionated training runtimes. ResearchLab targets a smaller gap: a
 single-user local control panel that uploads ordinary PyTorch projects through
 SSH and works without installing a permanent service on the training server.
+
+## License
+
+ResearchLab is released under the [Apache License 2.0](LICENSE).
