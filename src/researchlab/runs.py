@@ -115,11 +115,155 @@ def extract_source_archive(archive_path: Path, destination: Path) -> None:
             archive.extractall(destination)
 
 
+def source_files(root: Path, excludes: list[str] | None = None, limit: int = 5000) -> list[dict]:
+    root = root.resolve()
+    patterns = [*DEFAULT_EXCLUDES, *_gitignore_patterns(root), *(excludes or [])]
+    files = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if _excluded(relative, patterns) or path.is_symlink() or not path.is_file():
+            continue
+        files.append(
+            {
+                "path": relative.as_posix(),
+                "size": path.stat().st_size,
+            }
+        )
+        if len(files) >= limit:
+            break
+    return files
+
+
+def read_source_file(root: Path, relative: str, max_bytes: int = 1024 * 1024) -> dict:
+    relative_path = PurePosixPath(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise ValueError("invalid source path")
+    root = root.resolve()
+    target = (root / Path(*relative_path.parts)).resolve()
+    if not target.is_relative_to(root) or target.is_symlink() or not target.is_file():
+        raise FileNotFoundError(relative)
+    size = target.stat().st_size
+    if size > max_bytes:
+        raise ValueError(f"source file is larger than {max_bytes} bytes")
+    content = target.read_bytes()
+    if b"\0" in content:
+        raise ValueError("binary source files cannot be previewed")
+    return {
+        "path": relative_path.as_posix(),
+        "size": size,
+        "content": content.decode("utf-8", errors="replace"),
+    }
+
+
 class LabService:
     def __init__(self, database: Database | None = None):
         self.db = database or Database()
         self._processes: dict[str, subprocess.Popen] = {}
         self._process_lock = threading.Lock()
+        self._remote_monitors: set[str] = set()
+        self._recover_runs()
+        self._recover_operations()
+
+    def _recover_runs(self) -> None:
+        for run in self.db.list("runs"):
+            if run["status"] in {"queued", "running"}:
+                self.db.update("runs", run["id"], status="unknown")
+
+    def _recover_operations(self) -> None:
+        for operation in self.db.list("operations"):
+            if operation["status"] in {"queued", "running"}:
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="failed",
+                    message="Interrupted when the local controller stopped.",
+                    error="controller_restarted",
+                    finished_at=utc_now(),
+                )
+
+    def _start_operation(self, kind: str, target_id: str | None, action) -> dict:
+        operation = self.db.insert(
+            "operations",
+            {
+                "kind": kind,
+                "target_id": target_id,
+                "status": "queued",
+                "progress": 0.0,
+                "message": "Queued",
+                "result": None,
+                "error": None,
+                "started_at": None,
+                "finished_at": None,
+            },
+        )
+
+        def work() -> None:
+            self.db.update(
+                "operations",
+                operation["id"],
+                status="running",
+                progress=0.1,
+                message="Running",
+                started_at=utc_now(),
+            )
+            try:
+                result = action()
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="completed",
+                    progress=1.0,
+                    message="Completed",
+                    result=result,
+                    finished_at=utc_now(),
+                )
+            except Exception as exc:
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="failed",
+                    message="Failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                    finished_at=utc_now(),
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+        return self.db.get("operations", operation["id"])
+
+    def create_version_operation(
+        self, project_id: str, *, name: str = "", server_id: str | None = None
+    ) -> dict:
+        self.db.get("projects", project_id)
+        if server_id:
+            self.db.get("servers", server_id)
+        return self._start_operation(
+            "create_version",
+            project_id,
+            lambda: self.create_version(project_id, name=name, server_id=server_id),
+        )
+
+    def create_environment_operation(
+        self,
+        server_id: str | None,
+        *,
+        name: str,
+        python_version: str = "3.11",
+        pip_packages: list[str] | None = None,
+        install_command: str = "",
+    ) -> dict:
+        if server_id:
+            self.db.get("servers", server_id)
+        return self._start_operation(
+            "create_environment",
+            server_id,
+            lambda: self.create_conda_environment(
+                server_id,
+                name=name,
+                python_version=python_version,
+                pip_packages=pip_packages,
+                install_command=install_command,
+            ),
+        )
 
     def add_server(
         self,
@@ -129,22 +273,43 @@ class LabService:
         remote_root: str,
         shell_init: str = "",
     ) -> dict:
+        values = self._validated_server(
+            name=name,
+            ssh_alias=ssh_alias,
+            remote_root=remote_root,
+            shell_init=shell_init,
+        )
+        return self.db.insert("servers", values)
+
+    def update_server(self, server_id: str, **changes: str) -> dict:
+        current = self.db.get("servers", server_id)
+        values = self._validated_server(
+            name=changes.get("name", current["name"]),
+            ssh_alias=changes.get("ssh_alias", current["ssh_alias"]),
+            remote_root=changes.get("remote_root", current["remote_root"]),
+            shell_init=changes.get("shell_init", current["shell_init"]),
+        )
+        return self.db.update("servers", server_id, **values)
+
+    @staticmethod
+    def _validated_server(
+        *, name: str, ssh_alias: str, remote_root: str, shell_init: str
+    ) -> dict[str, str]:
         path = PurePosixPath(remote_root)
         if not path.is_absolute() or ".." in path.parts:
             raise ValueError("remote_root must be an absolute Linux path")
+        if not name.strip():
+            raise ValueError("server name cannot be blank")
         executor = SSHExecutor(ssh_alias, shell_init)
         connection = test_connection(executor)
         if not connection["ok"]:
             raise RuntimeError("SSH connection test failed")
-        return self.db.insert(
-            "servers",
-            {
-                "name": name.strip(),
-                "ssh_alias": ssh_alias,
-                "remote_root": str(path),
-                "shell_init": shell_init.strip(),
-            },
-        )
+        return {
+            "name": name.strip(),
+            "ssh_alias": ssh_alias,
+            "remote_root": str(path),
+            "shell_init": shell_init.strip(),
+        }
 
     def server_diagnostics(self, server_id: str | None = None) -> dict:
         server = self.db.get("servers", server_id) if server_id else None
@@ -154,6 +319,13 @@ class LabService:
             "hardware": hardware_snapshot(executor),
             "environments": discover_environments(executor),
         }
+
+    def probe_environment(self, server_id: str | None, python: str) -> dict:
+        server = self.db.get("servers", server_id) if server_id else None
+        python = python.strip()
+        if not python or "\n" in python or "\r" in python:
+            raise ValueError("python executable must be a non-empty single-line path")
+        return probe_environment(executor_for(server), python)
 
     def version_environments(self, version_id: str, backend: str = "cpu") -> list[dict]:
         version = self.db.get("versions", version_id)
@@ -178,6 +350,31 @@ class LabService:
                 "manifest": manifest.model_dump(mode="json"),
             },
         )
+
+    def inspect_project(self, source_path: str) -> dict:
+        manifest, root = load_manifest(source_path)
+        files = source_files(root, manifest.exclude)
+        return {
+            "root": str(root),
+            "manifest": manifest.model_dump(mode="json"),
+            "files": files,
+            "file_count": len(files),
+            "total_bytes": sum(file["size"] for file in files),
+            "truncated": len(files) >= 5000,
+        }
+
+    def project_files(self, project_id: str) -> list[dict]:
+        project = self.db.get("projects", project_id)
+        manifest, root = load_manifest(project["source_path"])
+        return source_files(root, manifest.exclude)
+
+    def version_files(self, version_id: str) -> list[dict]:
+        version = self.db.get("versions", version_id)
+        return source_files(Path(version["source_path"]))
+
+    def read_version_source(self, version_id: str, relative: str) -> dict:
+        version = self.db.get("versions", version_id)
+        return read_source_file(Path(version["source_path"]), relative)
 
     def create_version(
         self,
@@ -261,26 +458,19 @@ class LabService:
         python: str | None = None,
         name: str = "",
     ) -> dict:
-        version = self.db.get("versions", version_id)
-        manifest = ProjectManifest.model_validate(version["manifest"])
-        if task_name not in manifest.tasks:
-            raise ValueError(f"unknown task: {task_name}")
-        if backend not in {"cpu", "cuda", "npu"}:
-            raise ValueError("backend must be cpu, cuda, or npu")
-        devices = sorted(set(devices or []))
-        if backend != "cpu" and not devices:
-            raise ValueError("select at least one accelerator")
-        if backend == "npu" and devices != sorted(devices):
-            raise ValueError("Ascend device IDs must be in ascending order")
-
-        server = self.db.get("servers", version["server_id"]) if version["server_id"] else None
-        python = python or ("python3" if server else sys.executable)
-        command, resolved_params = build_command(
-            manifest.tasks[task_name],
-            params,
-            python=python,
+        resolved = self._resolve_run(
+            version_id,
+            task_name=task_name,
+            params=params,
             devices=devices,
+            backend=backend,
+            python=python,
         )
+        version = resolved["version"]
+        server = resolved["server"]
+        devices = resolved["devices"]
+        command = resolved["command"]
+        resolved_params = resolved["params"]
         run_name = timestamp_name(name)
         local_run_path = Path(version["source_path"]).parent / "runs" / run_name
         local_run_path.mkdir(parents=True, exist_ok=False)
@@ -307,6 +497,8 @@ class LabService:
                 "command": command,
                 "exit_code": None,
                 "error": None,
+                "tags": [],
+                "notes": "",
                 "started_at": None,
                 "finished_at": None,
             },
@@ -326,6 +518,257 @@ class LabService:
                 finished_at=utc_now(),
             )
             raise
+
+    def update_run_metadata(
+        self, run_id: str, *, tags: list[str] | None = None, notes: str | None = None
+    ) -> dict:
+        changes: dict[str, Any] = {}
+        if tags is not None:
+            cleaned = []
+            for tag in tags:
+                value = tag.strip()
+                if value and value not in cleaned:
+                    cleaned.append(value)
+            changes["tags"] = cleaned
+        if notes is not None:
+            changes["notes"] = notes.strip()
+        if not changes:
+            raise ValueError("at least one run metadata field is required")
+        return self.db.update("runs", run_id, **changes)
+
+    def read_all_events(self, run_id: str, limit: int = 10000) -> list[dict]:
+        cursor = 0
+        events: list[dict] = []
+        while cursor < limit:
+            page_size = min(5000, limit - cursor)
+            page = self.read_events(run_id, cursor, page_size)
+            events.extend(page["events"])
+            consumed = page["next"] - cursor
+            cursor = page["next"]
+            if consumed < page_size:
+                break
+        return events
+
+    def compare_runs(
+        self, run_ids: list[str], metric_names: list[str] | None = None
+    ) -> dict:
+        unique_ids = list(dict.fromkeys(run_ids))
+        if len(unique_ids) < 2 or len(unique_ids) > 20:
+            raise ValueError("select between 2 and 20 distinct runs")
+        selected_metrics = set(metric_names or [])
+        runs = []
+        series = []
+        for run_id in unique_ids:
+            run = self.db.get("runs", run_id)
+            runs.append(run)
+            grouped: dict[tuple[str, str], list[dict]] = {}
+            for event in self.read_all_events(run_id, 20000):
+                if event.get("type") != "metrics":
+                    continue
+                split = str(event.get("split", "unknown"))
+                for name, value in event.get("metrics", {}).items():
+                    if selected_metrics and name not in selected_metrics:
+                        continue
+                    grouped.setdefault((split, name), []).append(
+                        {
+                            "time": event.get("time"),
+                            "epoch": event.get("epoch"),
+                            "step": event.get("step"),
+                            "value": value,
+                        }
+                    )
+            for (split, name), points in grouped.items():
+                series.append(
+                    {
+                        "run_id": run_id,
+                        "split": split,
+                        "metric": name,
+                        "points": points,
+                        "latest": points[-1]["value"],
+                    }
+                )
+        return {"runs": runs, "series": series}
+
+    def export_run(self, run_id: str, event_limit: int = 10000) -> dict:
+        return {
+            "schema_version": 1,
+            "exported_at": utc_now(),
+            "run": self.db.get("runs", run_id),
+            "events": self.read_all_events(run_id, event_limit),
+            "artifacts": self.list_artifacts(run_id),
+        }
+
+    def _resolve_run(
+        self,
+        version_id: str,
+        *,
+        task_name: str,
+        params: dict[str, Any],
+        devices: list[int] | None,
+        backend: str,
+        python: str | None,
+    ) -> dict:
+        version = self.db.get("versions", version_id)
+        manifest = ProjectManifest.model_validate(version["manifest"])
+        if task_name not in manifest.tasks:
+            raise ValueError(f"unknown task: {task_name}")
+        if backend not in {"cpu", "cuda", "npu"}:
+            raise ValueError("backend must be cpu, cuda, or npu")
+        selected_devices = sorted(set(devices or []))
+        if backend != "cpu" and not selected_devices:
+            raise ValueError("select at least one accelerator")
+        server = self.db.get("servers", version["server_id"]) if version["server_id"] else None
+        selected_python = python or ("python3" if server else sys.executable)
+        command, resolved_params = build_command(
+            manifest.tasks[task_name],
+            params,
+            python=selected_python,
+            devices=selected_devices,
+        )
+        return {
+            "version": version,
+            "manifest": manifest,
+            "server": server,
+            "python": selected_python,
+            "devices": selected_devices,
+            "command": command,
+            "params": resolved_params,
+        }
+
+    def validate_run(
+        self,
+        version_id: str,
+        *,
+        task_name: str,
+        params: dict[str, Any],
+        devices: list[int] | None = None,
+        backend: str = "cpu",
+        python: str | None = None,
+    ) -> dict:
+        resolved = self._resolve_run(
+            version_id,
+            task_name=task_name,
+            params=params,
+            devices=devices,
+            backend=backend,
+            python=python,
+        )
+        executor = executor_for(resolved["server"])
+        environment = probe_environment(executor, resolved["python"])
+        compatibility = check_environment(
+            resolved["manifest"].environment, environment, backend
+        )
+        hardware = hardware_snapshot(executor)
+        warnings: list[str] = []
+        if backend != "cpu":
+            available = {
+                device["id"]: device
+                for device in hardware["devices"]
+                if device["backend"] == backend
+            }
+            missing = [device for device in resolved["devices"] if device not in available]
+            if missing:
+                raise ValueError(f"selected {backend} devices were not detected: {missing}")
+            busy = [device for device in resolved["devices"] if available[device]["busy"]]
+            if busy:
+                warnings.append(f"selected {backend} devices are currently busy: {busy}")
+        warnings.extend(hardware.get("warnings", []))
+        return {
+            "valid": compatibility["compatible"],
+            "command": resolved["command"],
+            "params": resolved["params"],
+            "environment": {**environment, **compatibility},
+            "hardware": hardware,
+            "warnings": warnings,
+        }
+
+    def rerun(self, run_id: str, name: str = "") -> dict:
+        previous = self.db.get("runs", run_id)
+        python = previous["command"][0] if previous["command"] else None
+        return self.start_run(
+            previous["version_id"],
+            task_name=previous["task"],
+            params=previous["params"],
+            devices=previous["devices"],
+            backend=previous["backend"],
+            python=python,
+            name=name or f"rerun-{previous['name']}",
+        )
+
+    def refresh_run(self, run_id: str) -> dict:
+        run = self.db.get("runs", run_id)
+        if run["status"] not in {"queued", "running", "unknown"}:
+            return run
+        if run["server_id"]:
+            server = self.db.get("servers", run["server_id"])
+            executor = executor_for(server)
+            assert isinstance(executor, SSHExecutor)
+            exit_path = str(PurePosixPath(run["remote_path"]) / "exit_code")
+            result = executor.run_script(
+                f"if [ -f {shlex.quote(exit_path)} ]; then cat {shlex.quote(exit_path)}; "
+                f"elif kill -0 {run['pid']} 2>/dev/null; then echo RUNNING; "
+                "else echo LOST; fi"
+            ).check()
+            state = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "LOST"
+        else:
+            with self._process_lock:
+                process = self._processes.get(run_id)
+            if process is not None:
+                code = process.poll()
+                state = "RUNNING" if code is None else str(code)
+            elif run["pid"]:
+                try:
+                    os.kill(run["pid"], 0)
+                    state = "RUNNING"
+                except (OSError, PermissionError):
+                    state = "LOST"
+            else:
+                state = "LOST"
+        if state == "RUNNING":
+            if run["server_id"] and run["pid"]:
+                self._ensure_remote_monitor(
+                    run_id, executor, run["remote_path"], run["pid"]
+                )
+            return self.db.update("runs", run_id, status="running")
+        if re.fullmatch(r"-?\d+", state):
+            exit_code = int(state)
+            return self.db.update(
+                "runs",
+                run_id,
+                status="completed" if exit_code == 0 else "failed",
+                exit_code=exit_code,
+                finished_at=utc_now(),
+            )
+        return self.db.update("runs", run_id, status="unknown")
+
+    def list_artifacts(self, run_id: str) -> list[dict]:
+        run = self.db.get("runs", run_id)
+        if run["server_id"]:
+            server = self.db.get("servers", run["server_id"])
+            executor = executor_for(server)
+            assert isinstance(executor, SSHExecutor)
+            artifact_root = str(PurePosixPath(run["remote_path"]) / "artifacts")
+            result = executor.run_script(
+                f"test ! -d {shlex.quote(artifact_root)} || "
+                f"find {shlex.quote(artifact_root)} -type f -printf '%P\\t%s\\n'"
+            ).check()
+            records = []
+            for line in result.stdout.splitlines():
+                path, separator, size = line.rpartition("\t")
+                if separator and size.isdigit():
+                    records.append({"path": f"artifacts/{path}", "size": int(size)})
+            return records
+        artifact_root = Path(run["run_path"]) / "artifacts"
+        if not artifact_root.is_dir():
+            return []
+        return [
+            {
+                "path": f"artifacts/{path.relative_to(artifact_root).as_posix()}",
+                "size": path.stat().st_size,
+            }
+            for path in sorted(artifact_root.rglob("*"))
+            if path.is_file() and not path.is_symlink()
+        ]
 
     def _runtime_environment(self, run: dict, source: str) -> dict[str, str]:
         environment = {
@@ -428,12 +871,25 @@ class LabService:
             pid=pid,
             started_at=utc_now(),
         )
-        threading.Thread(
-            target=self._monitor_remote,
-            args=(run["id"], executor, remote_run, pid),
-            daemon=True,
-        ).start()
+        self._ensure_remote_monitor(run["id"], executor, remote_run, pid)
         return updated
+
+    def _ensure_remote_monitor(
+        self, run_id: str, executor: SSHExecutor, remote_run: str, pid: int
+    ) -> None:
+        with self._process_lock:
+            if run_id in self._remote_monitors:
+                return
+            self._remote_monitors.add(run_id)
+
+        def monitor() -> None:
+            try:
+                self._monitor_remote(run_id, executor, remote_run, pid)
+            finally:
+                with self._process_lock:
+                    self._remote_monitors.discard(run_id)
+
+        threading.Thread(target=monitor, daemon=True).start()
 
     def _monitor_local(self, run_id: str, process: subprocess.Popen) -> None:
         exit_code = process.wait()
@@ -579,35 +1035,70 @@ class LabService:
 
     def create_conda_environment(
         self,
-        server_id: str,
+        server_id: str | None,
         *,
         name: str,
         python_version: str = "3.11",
+        pip_packages: list[str] | None = None,
         install_command: str = "",
     ) -> dict:
-        server = self.db.get("servers", server_id)
+        server = self.db.get("servers", server_id) if server_id else None
         executor = executor_for(server)
-        assert isinstance(executor, SSHExecutor)
-        env_path = PurePosixPath(server["remote_root"]) / ".envs" / slugify(name)
         if not re.fullmatch(r"3\.\d{1,2}", python_version):
             raise ValueError("unsupported Python version")
-        script = (
-            f"test ! -e {shlex.quote(str(env_path))} && "
-            f"mkdir -p {shlex.quote(str(env_path.parent))} && "
-            f"conda create --prefix {shlex.quote(str(env_path))} "
-            f"python={shlex.quote(python_version)} -y"
-        )
-        executor.run_script(script, timeout=1800).check()
-        if install_command.strip():
-            if "\n" in install_command or "\r" in install_command:
-                raise ValueError("install command must be one line")
+        pip_packages = pip_packages or []
+        if any(not package.strip() or "\n" in package or "\r" in package for package in pip_packages):
+            raise ValueError("pip package specifications must be non-empty single-line values")
+        if "\n" in install_command or "\r" in install_command:
+            raise ValueError("install command must be one line")
+
+        if server:
+            assert isinstance(executor, SSHExecutor)
+            env_path: Path | PurePosixPath = (
+                PurePosixPath(server["remote_root"]) / ".envs" / slugify(name)
+            )
+            script = (
+                f"test ! -e {shlex.quote(str(env_path))} || "
+                f"{{ printf 'environment already exists\\n' >&2; exit 2; }}; "
+                f"mkdir -p {shlex.quote(str(env_path.parent))} && "
+                f"conda create --prefix {shlex.quote(str(env_path))} "
+                f"python={shlex.quote(python_version)} -y"
+            )
+            executor.run_script(script, timeout=1800).check()
             python_path = str(env_path / "bin" / "python")
-            command = install_command.replace("{python}", shlex.quote(python_path))
+            if pip_packages:
+                executor.run(
+                    [python_path, "-m", "pip", "install", *pip_packages], timeout=1800
+                ).check()
+        else:
+            env_path = app_home() / ".envs" / slugify(name)
+            if env_path.exists():
+                raise ValueError(f"environment already exists: {env_path}")
+            env_path.parent.mkdir(parents=True, exist_ok=True)
+            executor.run(
+                ["conda", "create", "--prefix", str(env_path), f"python={python_version}", "-y"],
+                timeout=1800,
+            ).check()
+            python_path = str(
+                env_path / ("python.exe" if os.name == "nt" else "bin/python")
+            )
+            if pip_packages:
+                executor.run(
+                    [python_path, "-m", "pip", "install", *pip_packages], timeout=1800
+                ).check()
+
+        if install_command.strip():
+            quoted_python = (
+                shlex.quote(python_path)
+                if server or os.name != "nt"
+                else subprocess.list2cmdline([python_path])
+            )
+            command = install_command.replace("{python}", quoted_python)
             executor.run_script(command, timeout=1800).check()
-        return probe_environment(executor, str(env_path / "bin" / "python"))
+        return {"name": slugify(name), "prefix": str(env_path), **probe_environment(executor, python_path)}
 
 
-def probe_environment(executor: SSHExecutor, python: str) -> dict:
+def probe_environment(executor, python: str) -> dict:
     from .system import probe_python
 
     return probe_python(executor, python)

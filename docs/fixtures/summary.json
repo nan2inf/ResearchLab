@@ -1,0 +1,12 @@
+{
+  "data": {
+    "counts": {
+      "servers": 2,
+      "projects": 1,
+      "versions": 3,
+      "runs": 12,
+      "running": 1
+    },
+    "recent_runs": []
+  }
+}

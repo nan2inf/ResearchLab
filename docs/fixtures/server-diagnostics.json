@@ -1,0 +1,66 @@
+{
+  "data": {
+    "connection": {
+      "ok": true,
+      "system": "Linux 6.8.0 x86_64"
+    },
+    "hardware": {
+      "system": {
+        "platform": "Linux 6.8.0 x86_64",
+        "cpu_count": 64,
+        "memory_total_mb": 262144
+      },
+      "devices": [
+        {
+          "backend": "cuda",
+          "id": 0,
+          "uuid": "GPU-example-0000",
+          "name": "NVIDIA Example GPU",
+          "memory_total_mb": 49140,
+          "memory_used_mb": 12400,
+          "utilization_percent": 72.0,
+          "temperature_c": 61.0,
+          "processes": [
+            {
+              "pid": 4123,
+              "user": "researcher",
+              "name": "python",
+              "memory_mb": 11800
+            }
+          ],
+          "busy": true
+        },
+        {
+          "backend": "npu",
+          "id": 1,
+          "name": "Ascend-Example",
+          "memory_total_mb": 32768,
+          "memory_used_mb": 0,
+          "utilization_percent": 0.0,
+          "temperature_c": null,
+          "processes": [],
+          "busy": false
+        }
+      ],
+      "tools": {
+        "nvidia_smi": true,
+        "npu_smi": true
+      },
+      "warnings": []
+    },
+    "environments": [
+      {
+        "name": "research",
+        "python": "3.12.4",
+        "executable": "/data/researchlab/.envs/research/bin/python",
+        "platform": "Linux-6.8.0-x86_64",
+        "torch": "2.7.1",
+        "cuda_available": true,
+        "cuda_devices": 2,
+        "npu_available": false,
+        "npu_devices": 0,
+        "ok": true
+      }
+    ]
+  }
+}

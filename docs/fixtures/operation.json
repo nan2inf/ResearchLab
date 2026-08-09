@@ -1,0 +1,15 @@
+{
+  "data": {
+    "id": "operation_example_20260809",
+    "kind": "create_version",
+    "target_id": "project_example",
+    "status": "running",
+    "progress": 0.1,
+    "message": "Running",
+    "result": null,
+    "error": null,
+    "created_at": "2026-08-09T06:30:00Z",
+    "started_at": "2026-08-09T06:30:01Z",
+    "finished_at": null
+  }
+}

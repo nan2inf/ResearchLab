@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "operation_failed",
+    "message": "The SSH connection could not be established.",
+    "details": null,
+    "retryable": true
+  }
+}
