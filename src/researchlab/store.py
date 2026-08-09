@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-JSON_COLUMNS = {"manifest", "params", "devices", "command", "metadata"}
-TABLES = {"servers", "projects", "versions", "runs"}
+JSON_COLUMNS = {"manifest", "params", "devices", "command", "metadata", "result"}
+TABLES = {"servers", "projects", "versions", "runs", "operations"}
 
 
 def utc_now() -> str:
@@ -96,9 +96,23 @@ class Database:
                     started_at TEXT,
                     finished_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS operations (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    target_id TEXT,
+                    status TEXT NOT NULL,
+                    progress REAL NOT NULL,
+                    message TEXT NOT NULL,
+                    result TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT
+                );
                 CREATE INDEX IF NOT EXISTS idx_versions_project ON versions(project_id);
                 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
                 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+                CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status);
                 """
             )
             server_columns = {

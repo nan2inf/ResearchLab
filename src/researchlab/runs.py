@@ -115,11 +115,148 @@ def extract_source_archive(archive_path: Path, destination: Path) -> None:
             archive.extractall(destination)
 
 
+def source_files(root: Path, excludes: list[str] | None = None, limit: int = 5000) -> list[dict]:
+    root = root.resolve()
+    patterns = [*DEFAULT_EXCLUDES, *_gitignore_patterns(root), *(excludes or [])]
+    files = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if _excluded(relative, patterns) or path.is_symlink() or not path.is_file():
+            continue
+        files.append(
+            {
+                "path": relative.as_posix(),
+                "size": path.stat().st_size,
+            }
+        )
+        if len(files) >= limit:
+            break
+    return files
+
+
+def read_source_file(root: Path, relative: str, max_bytes: int = 1024 * 1024) -> dict:
+    relative_path = PurePosixPath(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise ValueError("invalid source path")
+    root = root.resolve()
+    target = (root / Path(*relative_path.parts)).resolve()
+    if not target.is_relative_to(root) or target.is_symlink() or not target.is_file():
+        raise FileNotFoundError(relative)
+    size = target.stat().st_size
+    if size > max_bytes:
+        raise ValueError(f"source file is larger than {max_bytes} bytes")
+    content = target.read_bytes()
+    if b"\0" in content:
+        raise ValueError("binary source files cannot be previewed")
+    return {
+        "path": relative_path.as_posix(),
+        "size": size,
+        "content": content.decode("utf-8", errors="replace"),
+    }
+
+
 class LabService:
     def __init__(self, database: Database | None = None):
         self.db = database or Database()
         self._processes: dict[str, subprocess.Popen] = {}
         self._process_lock = threading.Lock()
+        self._recover_operations()
+
+    def _recover_operations(self) -> None:
+        for operation in self.db.list("operations"):
+            if operation["status"] in {"queued", "running"}:
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="failed",
+                    message="Interrupted when the local controller stopped.",
+                    error="controller_restarted",
+                    finished_at=utc_now(),
+                )
+
+    def _start_operation(self, kind: str, target_id: str | None, action) -> dict:
+        operation = self.db.insert(
+            "operations",
+            {
+                "kind": kind,
+                "target_id": target_id,
+                "status": "queued",
+                "progress": 0.0,
+                "message": "Queued",
+                "result": None,
+                "error": None,
+                "started_at": None,
+                "finished_at": None,
+            },
+        )
+
+        def work() -> None:
+            self.db.update(
+                "operations",
+                operation["id"],
+                status="running",
+                progress=0.1,
+                message="Running",
+                started_at=utc_now(),
+            )
+            try:
+                result = action()
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="completed",
+                    progress=1.0,
+                    message="Completed",
+                    result=result,
+                    finished_at=utc_now(),
+                )
+            except Exception as exc:
+                self.db.update(
+                    "operations",
+                    operation["id"],
+                    status="failed",
+                    message="Failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                    finished_at=utc_now(),
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+        return self.db.get("operations", operation["id"])
+
+    def create_version_operation(
+        self, project_id: str, *, name: str = "", server_id: str | None = None
+    ) -> dict:
+        self.db.get("projects", project_id)
+        if server_id:
+            self.db.get("servers", server_id)
+        return self._start_operation(
+            "create_version",
+            project_id,
+            lambda: self.create_version(project_id, name=name, server_id=server_id),
+        )
+
+    def create_environment_operation(
+        self,
+        server_id: str | None,
+        *,
+        name: str,
+        python_version: str = "3.11",
+        pip_packages: list[str] | None = None,
+        install_command: str = "",
+    ) -> dict:
+        if server_id:
+            self.db.get("servers", server_id)
+        return self._start_operation(
+            "create_environment",
+            server_id,
+            lambda: self.create_conda_environment(
+                server_id,
+                name=name,
+                python_version=python_version,
+                pip_packages=pip_packages,
+                install_command=install_command,
+            ),
+        )
 
     def add_server(
         self,
@@ -206,6 +343,31 @@ class LabService:
                 "manifest": manifest.model_dump(mode="json"),
             },
         )
+
+    def inspect_project(self, source_path: str) -> dict:
+        manifest, root = load_manifest(source_path)
+        files = source_files(root, manifest.exclude)
+        return {
+            "root": str(root),
+            "manifest": manifest.model_dump(mode="json"),
+            "files": files,
+            "file_count": len(files),
+            "total_bytes": sum(file["size"] for file in files),
+            "truncated": len(files) >= 5000,
+        }
+
+    def project_files(self, project_id: str) -> list[dict]:
+        project = self.db.get("projects", project_id)
+        manifest, root = load_manifest(project["source_path"])
+        return source_files(root, manifest.exclude)
+
+    def version_files(self, version_id: str) -> list[dict]:
+        version = self.db.get("versions", version_id)
+        return source_files(Path(version["source_path"]))
+
+    def read_version_source(self, version_id: str, relative: str) -> dict:
+        version = self.db.get("versions", version_id)
+        return read_source_file(Path(version["source_path"]), relative)
 
     def create_version(
         self,

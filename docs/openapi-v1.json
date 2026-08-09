@@ -69,6 +69,208 @@
         }
       }
     },
+    "/api/v1/operations": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Operations",
+        "operationId": "operations_api_v1_operations_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "completed",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_OperationResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/{operation_id}": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Operation",
+        "operationId": "operation_api_v1_operations__operation_id__get",
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_OperationResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/environments": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Create Environment Operation",
+        "operationId": "create_environment_operation_api_v1_operations_environments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentOperationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_OperationResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/versions": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Create Version Operation",
+        "operationId": "create_version_operation_api_v1_operations_versions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionOperationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_OperationResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/servers": {
       "get": {
         "tags": [
@@ -680,6 +882,47 @@
         }
       }
     },
+    "/api/v1/projects/inspect": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Inspect Project",
+        "operationId": "inspect_project_api_v1_projects_inspect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectInspect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_ProjectInspection_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}": {
       "get": {
         "tags": [
@@ -705,6 +948,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ItemResponse_ProjectResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/files": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Project Files",
+        "operationId": "project_files_api_v1_projects__project_id__files_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SourceFile_"
                 }
               }
             }
@@ -871,6 +1156,99 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ItemResponse_VersionResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/versions/{version_id}/files": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Version Files",
+        "operationId": "version_files_api_v1_versions__version_id__files_get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_SourceFile_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/versions/{version_id}/files/{source_path}": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Version Source",
+        "operationId": "version_source_api_v1_versions__version_id__files__source_path__get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "source_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_SourceContent_"
                 }
               }
             }
@@ -1512,6 +1890,52 @@
         ],
         "title": "Counts"
       },
+      "EnvironmentOperationCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "python_version": {
+            "type": "string",
+            "pattern": "^3\\.\\d{1,2}$",
+            "title": "Python Version",
+            "default": "3.11"
+          },
+          "pip_packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Pip Packages"
+          },
+          "install_command": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Install Command",
+            "default": ""
+          },
+          "server_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "EnvironmentOperationCreate"
+      },
       "EnvironmentProbe": {
         "properties": {
           "python": {
@@ -1625,6 +2049,30 @@
         ],
         "title": "ItemResponse[Health]"
       },
+      "ItemResponse_OperationResource_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OperationResource"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ItemResponse[OperationResource]"
+      },
+      "ItemResponse_ProjectInspection_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProjectInspection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ItemResponse[ProjectInspection]"
+      },
       "ItemResponse_ProjectResource_": {
         "properties": {
           "data": {
@@ -1660,6 +2108,18 @@
           "data"
         ],
         "title": "ItemResponse[ServerResource]"
+      },
+      "ItemResponse_SourceContent_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SourceContent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ItemResponse[SourceContent]"
       },
       "ItemResponse_Summary_": {
         "properties": {
@@ -1697,6 +2157,26 @@
           "data"
         ],
         "title": "ItemResponse[dict[str, Any]]"
+      },
+      "ListResponse_OperationResource_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OperationResource"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PageMeta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "ListResponse[OperationResource]"
       },
       "ListResponse_ProjectResource_": {
         "properties": {
@@ -1758,6 +2238,26 @@
         ],
         "title": "ListResponse[ServerResource]"
       },
+      "ListResponse_SourceFile_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SourceFile"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PageMeta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "ListResponse[SourceFile]"
+      },
       "ListResponse_VersionResource_": {
         "properties": {
           "data": {
@@ -1798,6 +2298,100 @@
         ],
         "title": "ListResponse[dict[str, Any]]"
       },
+      "OperationResource": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "progress": {
+            "type": "number",
+            "title": "Progress"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "result": {
+            "title": "Result"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "progress",
+          "message",
+          "created_at"
+        ],
+        "title": "OperationResource"
+      },
       "PageMeta": {
         "properties": {
           "total": {
@@ -1835,6 +2429,62 @@
           "source_path"
         ],
         "title": "ProjectCreate"
+      },
+      "ProjectInspect": {
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Source Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_path"
+        ],
+        "title": "ProjectInspect"
+      },
+      "ProjectInspection": {
+        "properties": {
+          "root": {
+            "type": "string",
+            "title": "Root"
+          },
+          "manifest": {
+            "type": "object",
+            "title": "Manifest"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/SourceFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "file_count": {
+            "type": "integer",
+            "title": "File Count"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "root",
+          "manifest",
+          "files",
+          "file_count",
+          "total_bytes",
+          "truncated"
+        ],
+        "title": "ProjectInspection"
       },
       "ProjectResource": {
         "properties": {
@@ -2168,6 +2818,47 @@
         "type": "object",
         "title": "ServerUpdate"
       },
+      "SourceContent": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size",
+          "content"
+        ],
+        "title": "SourceContent"
+      },
+      "SourceFile": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size"
+        ],
+        "title": "SourceFile"
+      },
       "Summary": {
         "properties": {
           "counts": {
@@ -2243,6 +2934,36 @@
         },
         "type": "object",
         "title": "VersionCreate"
+      },
+      "VersionOperationCreate": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Name",
+            "default": ""
+          },
+          "server_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id"
+        ],
+        "title": "VersionOperationCreate"
       },
       "VersionResource": {
         "properties": {

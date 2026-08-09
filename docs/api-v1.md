@@ -22,6 +22,10 @@ and is also served at `GET /api/v1/openapi.json`.
 | Contract | `GET /api/v1/health` | Controller/tool availability |
 | Contract | `GET /api/v1/capabilities` | Feature negotiation |
 | Contract | `GET /api/v1/summary` | Dashboard counts and recent runs |
+| Operations | `GET /api/v1/operations/{id}` | Poll a durable background operation |
+| Operations | `GET /api/v1/operations` | List/filter background operations |
+| Operations | `POST /api/v1/operations/environments` | Create an environment without blocking the UI |
+| Operations | `POST /api/v1/operations/versions` | Snapshot/upload code without blocking the UI |
 | Local host | `GET /api/v1/local/diagnostics` | Connection, hardware, environments |
 | Local host | `GET /api/v1/local/hardware` | CPU, CUDA and Ascend status |
 | Local host | `GET /api/v1/local/environments` | Conda/system Python probes |
@@ -34,10 +38,14 @@ and is also served at `GET /api/v1/openapi.json`.
 | Servers | `POST /api/v1/servers/{id}/environments/probe` | Probe a remote Python path |
 | Servers | `POST /api/v1/servers/{id}/environments` | Create a remote Conda environment |
 | Projects | `GET, POST /api/v1/projects` | List and import projects |
+| Projects | `POST /api/v1/projects/inspect` | Validate a project before importing |
 | Projects | `GET /api/v1/projects/{id}` | Project manifest |
+| Projects | `GET /api/v1/projects/{id}/files` | Current source tree (read-only) |
 | Versions | `GET /api/v1/versions` | List immutable versions |
 | Versions | `POST /api/v1/projects/{id}/versions` | Snapshot and optionally upload code |
 | Versions | `GET /api/v1/versions/{id}` | Version metadata and paths |
+| Versions | `GET /api/v1/versions/{id}/files` | Immutable version source tree |
+| Versions | `GET /api/v1/versions/{id}/files/{path}` | Preview a text source file |
 | Versions | `GET /api/v1/versions/{id}/environments` | Compatible runtime candidates |
 | Runs | `GET, POST /api/v1/runs` | Filter runs or start a run |
 | Runs | `GET /api/v1/runs/{id}` | Run state and launch metadata |
@@ -47,8 +55,9 @@ and is also served at `GET /api/v1/openapi.json`.
 | Results | `GET /api/v1/runs/{id}/artifacts/{path}` | Safely read a run artifact |
 
 The `capabilities` response is authoritative. A client must hide or disable a
-feature when its flag is false. Background operations and run comparison are
-reserved for later milestones and are currently reported as unavailable.
+feature when its flag is false. The synchronous environment/version routes remain
+useful to scripts, while the UI should prefer background operations. Run comparison
+is reserved for a later milestone and is currently reported as unavailable.
 
 ## Regenerating the schema
 

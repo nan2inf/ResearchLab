@@ -160,6 +160,57 @@ class ProjectCreate(BaseModel):
     source_path: str = Field(min_length=1, max_length=1000)
 
 
+class ProjectInspect(BaseModel):
+    source_path: str = Field(min_length=1, max_length=1000)
+
+
+class SourceFile(BaseModel):
+    path: str
+    size: int
+
+
+class ProjectInspection(BaseModel):
+    root: str
+    manifest: dict[str, Any]
+    files: list[SourceFile]
+    file_count: int
+    total_bytes: int
+    truncated: bool
+
+
+class SourceContent(BaseModel):
+    path: str
+    size: int
+    content: str
+
+
+OperationStatus = Literal["queued", "running", "completed", "failed"]
+
+
+class OperationResource(BaseModel):
+    id: str
+    kind: str
+    target_id: str | None = None
+    status: OperationStatus
+    progress: float
+    message: str
+    result: Any = None
+    error: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class EnvironmentOperationCreate(CondaEnvironmentCreate):
+    server_id: str | None = None
+
+
+class VersionOperationCreate(BaseModel):
+    project_id: str
+    name: str = Field(default="", max_length=80)
+    server_id: str | None = None
+
+
 class VersionCreate(BaseModel):
     name: str = Field(default="", max_length=80)
     server_id: str | None = None
@@ -329,7 +380,7 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
                     "live_events": True,
                     "artifacts": True,
                     "run_comparison": False,
-                    "background_operations": False,
+                    "background_operations": True,
                 }
             )
         )
@@ -353,6 +404,53 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
                 recent_runs=[RunResource.model_validate(run) for run in runs[:10]],
             )
         )
+
+    @router.get("/operations", response_model=ListResponse[OperationResource])
+    def operations(
+        status: OperationStatus | None = None,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> ListResponse[OperationResource]:
+        items = get_lab().db.list(
+            "operations", **({"status": status} if status else {})
+        )
+        records = [OperationResource.model_validate(item) for item in items]
+        return _page(records, limit, offset)
+
+    @router.get(
+        "/operations/{operation_id}", response_model=ItemResponse[OperationResource]
+    )
+    def operation(operation_id: str) -> ItemResponse[OperationResource]:
+        record = _call(lambda: get_lab().db.get("operations", operation_id))
+        return ItemResponse(data=OperationResource.model_validate(record))
+
+    @router.post(
+        "/operations/environments",
+        response_model=ItemResponse[OperationResource],
+        status_code=202,
+    )
+    def create_environment_operation(
+        request: EnvironmentOperationCreate,
+    ) -> ItemResponse[OperationResource]:
+        data = request.model_dump()
+        server_id = data.pop("server_id")
+        record = _call(
+            lambda: get_lab().create_environment_operation(server_id, **data)
+        )
+        return ItemResponse(data=OperationResource.model_validate(record))
+
+    @router.post(
+        "/operations/versions",
+        response_model=ItemResponse[OperationResource],
+        status_code=202,
+    )
+    def create_version_operation(
+        request: VersionOperationCreate,
+    ) -> ItemResponse[OperationResource]:
+        data = request.model_dump()
+        project_id = data.pop("project_id")
+        record = _call(lambda: get_lab().create_version_operation(project_id, **data))
+        return ItemResponse(data=OperationResource.model_validate(record))
 
     @router.get("/servers", response_model=ListResponse[ServerResource])
     def servers(
@@ -465,6 +563,11 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
         records = [ProjectResource.model_validate(item) for item in get_lab().db.list("projects")]
         return _page(records, limit, offset)
 
+    @router.post("/projects/inspect", response_model=ItemResponse[ProjectInspection])
+    def inspect_project(request: ProjectInspect) -> ItemResponse[ProjectInspection]:
+        record = _call(lambda: get_lab().inspect_project(request.source_path))
+        return ItemResponse(data=ProjectInspection.model_validate(record))
+
     @router.post("/projects", response_model=ItemResponse[ProjectResource], status_code=201)
     def create_project(request: ProjectCreate) -> ItemResponse[ProjectResource]:
         record = _call(lambda: get_lab().add_project(request.source_path))
@@ -474,6 +577,14 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     def project(project_id: str) -> ItemResponse[ProjectResource]:
         record = _call(lambda: get_lab().db.get("projects", project_id))
         return ItemResponse(data=ProjectResource.model_validate(record))
+
+    @router.get("/projects/{project_id}/files", response_model=ListResponse[SourceFile])
+    def project_files(project_id: str) -> ListResponse[SourceFile]:
+        records = [
+            SourceFile.model_validate(item)
+            for item in _call(lambda: get_lab().project_files(project_id))
+        ]
+        return _page(records, 5000, 0)
 
     @router.get("/versions", response_model=ListResponse[VersionResource])
     def versions(
@@ -498,6 +609,24 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     def version(version_id: str) -> ItemResponse[VersionResource]:
         record = _call(lambda: get_lab().db.get("versions", version_id))
         return ItemResponse(data=VersionResource.model_validate(record))
+
+    @router.get("/versions/{version_id}/files", response_model=ListResponse[SourceFile])
+    def version_files(version_id: str) -> ListResponse[SourceFile]:
+        records = [
+            SourceFile.model_validate(item)
+            for item in _call(lambda: get_lab().version_files(version_id))
+        ]
+        return _page(records, 5000, 0)
+
+    @router.get(
+        "/versions/{version_id}/files/{source_path:path}",
+        response_model=ItemResponse[SourceContent],
+    )
+    def version_source(
+        version_id: str, source_path: str
+    ) -> ItemResponse[SourceContent]:
+        record = _call(lambda: get_lab().read_version_source(version_id, source_path))
+        return ItemResponse(data=SourceContent.model_validate(record))
 
     @router.get("/versions/{version_id}/environments", response_model=ListResponse[dict[str, Any]])
     def version_environments(

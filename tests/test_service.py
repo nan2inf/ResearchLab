@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+import pytest
 import researchlab.runs as runs_module
 from researchlab.runs import LabService, create_source_archive, extract_source_archive
 from researchlab.store import Database
@@ -77,12 +78,62 @@ def test_local_conda_environment_uses_isolated_prefix(tmp_path: Path, monkeypatc
     assert environment["ok"] is True
 
 
+def test_background_operation_persists_result_and_recovers_interruptions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = Database(tmp_path / "app.db")
+    service = LabService(database)
+    monkeypatch.setattr(
+        service,
+        "create_conda_environment",
+        lambda server_id, **options: {"ok": True, "name": options["name"]},
+    )
+
+    operation = service.create_environment_operation(None, name="background")
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        operation = database.get("operations", operation["id"])
+        if operation["status"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+
+    assert operation["status"] == "completed"
+    assert operation["result"] == {"ok": True, "name": "background"}
+
+    interrupted = database.insert(
+        "operations",
+        {
+            "kind": "test",
+            "target_id": None,
+            "status": "running",
+            "progress": 0.5,
+            "message": "Running",
+            "result": None,
+            "error": None,
+            "started_at": operation["created_at"],
+            "finished_at": None,
+        },
+    )
+    LabService(database)
+    recovered = database.get("operations", interrupted["id"])
+    assert recovered["status"] == "failed"
+    assert recovered["error"] == "controller_restarted"
+
+
 def test_local_project_version_and_run_end_to_end(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RESEARCHLAB_HOME", str(tmp_path / "state"))
     service = LabService(Database())
     example = Path(__file__).parents[1] / "examples" / "synthetic-classification"
     project = service.add_project(str(example))
+    inspection = service.inspect_project(str(example))
+    assert inspection["manifest"]["name"] == "synthetic-classification"
+    assert any(file["path"] == "train.py" for file in inspection["files"])
     version = service.create_version(project["id"], name="test")
+    assert any(file["path"] == "train.py" for file in service.version_files(version["id"]))
+    source = service.read_version_source(version["id"], "train.py")
+    assert "def main" in source["content"]
+    with pytest.raises(ValueError, match="invalid source path"):
+        service.read_version_source(version["id"], "../project.yaml")
     run = service.start_run(
         version["id"],
         task_name="train",

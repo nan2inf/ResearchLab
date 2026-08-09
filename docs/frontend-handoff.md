@@ -18,12 +18,14 @@ The UI and controller can now be developed independently against API v1.
    error `message`; put `details` behind a disclosure rather than dumping raw data.
 4. Poll run events with the `after` cursor. Keep the latest cursor per run and
    tolerate an empty event page.
-5. Treat paths as opaque strings so Windows and Linux paths both render correctly.
-6. Never request, display, or persist private-key contents or passwords. The server
+5. Start environment installation and version upload through `/api/v1/operations/*`,
+   then poll the returned operation ID until it completes or fails.
+6. Treat paths as opaque strings so Windows and Linux paths both render correctly.
+7. Never request, display, or persist private-key contents or passwords. The server
    form accepts an SSH config alias only.
-7. Do not infer whether a device is free. Use its `busy` value and show process/user
+8. Do not infer whether a device is free. Use its `busy` value and show process/user
    details when supplied.
-8. Keep dependencies local to the repository; the UI must work without a CDN.
+9. Keep dependencies local to the repository; the UI must work without a CDN.
 
 ## Development inputs
 
