@@ -1495,6 +1495,47 @@
         }
       }
     },
+    "/api/v1/runs/validate": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Validate Run",
+        "operationId": "validate_run_api_v1_runs_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunValidate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_RunValidation_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}": {
       "get": {
         "tags": [
@@ -1544,6 +1585,100 @@
         ],
         "summary": "Cancel Run",
         "operationId": "cancel_run_api_v1_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_RunResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/rerun": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Rerun",
+        "operationId": "rerun_api_v1_runs__run_id__rerun_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRerun"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse_RunResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/refresh": {
+      "post": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Refresh Run",
+        "operationId": "refresh_run_api_v1_runs__run_id__refresh_post",
         "parameters": [
           {
             "name": "run_id",
@@ -1698,6 +1833,48 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/artifacts": {
+      "get": {
+        "tags": [
+          "API v1"
+        ],
+        "summary": "Artifacts",
+        "operationId": "artifacts_api_v1_runs__run_id__artifacts_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_ArtifactResource_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/artifacts/{artifact_path}": {
       "get": {
         "tags": [
@@ -1750,6 +1927,24 @@
   },
   "components": {
     "schemas": {
+      "ArtifactResource": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size"
+        ],
+        "title": "ArtifactResource"
+      },
       "Capabilities": {
         "properties": {
           "api_version": {
@@ -2097,6 +2292,18 @@
         ],
         "title": "ItemResponse[RunResource]"
       },
+      "ItemResponse_RunValidation_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunValidation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ItemResponse[RunValidation]"
+      },
       "ItemResponse_ServerResource_": {
         "properties": {
           "data": {
@@ -2157,6 +2364,26 @@
           "data"
         ],
         "title": "ItemResponse[dict[str, Any]]"
+      },
+      "ListResponse_ArtifactResource_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactResource"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PageMeta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "ListResponse[ArtifactResource]"
       },
       "ListResponse_OperationResource_": {
         "properties": {
@@ -2520,6 +2747,18 @@
         ],
         "title": "ProjectResource"
       },
+      "RunRerun": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "RunRerun"
+      },
       "RunResource": {
         "properties": {
           "id": {
@@ -2686,6 +2925,100 @@
           "created_at"
         ],
         "title": "RunResource"
+      },
+      "RunValidate": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "title": "Version Id"
+          },
+          "task": {
+            "type": "string",
+            "title": "Task"
+          },
+          "params": {
+            "type": "object",
+            "title": "Params"
+          },
+          "devices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Devices"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "cuda",
+              "npu"
+            ],
+            "title": "Backend",
+            "default": "cpu"
+          },
+          "python": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Python"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_id",
+          "task"
+        ],
+        "title": "RunValidate"
+      },
+      "RunValidation": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "command": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Command"
+          },
+          "params": {
+            "type": "object",
+            "title": "Params"
+          },
+          "environment": {
+            "type": "object",
+            "title": "Environment"
+          },
+          "hardware": {
+            "type": "object",
+            "title": "Hardware"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "command",
+          "params",
+          "environment",
+          "hardware",
+          "warnings"
+        ],
+        "title": "RunValidation"
       },
       "ServerCreate": {
         "properties": {

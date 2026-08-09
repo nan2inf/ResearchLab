@@ -226,6 +226,33 @@ class RunCreate(BaseModel):
     name: str = Field(default="", max_length=80)
 
 
+class RunValidate(BaseModel):
+    version_id: str
+    task: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    devices: list[int] = Field(default_factory=list)
+    backend: Literal["cpu", "cuda", "npu"] = "cpu"
+    python: str | None = None
+
+
+class RunValidation(BaseModel):
+    valid: bool
+    command: list[str]
+    params: dict[str, Any]
+    environment: dict[str, Any]
+    hardware: dict[str, Any]
+    warnings: list[str]
+
+
+class RunRerun(BaseModel):
+    name: str = Field(default="", max_length=80)
+
+
+class ArtifactResource(BaseModel):
+    path: str
+    size: int
+
+
 class EventPage(BaseModel):
     events: list[dict[str, Any]]
     next: int
@@ -663,6 +690,16 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
         record = _call(lambda: get_lab().start_run(version_id, task_name=task, **data))
         return ItemResponse(data=RunResource.model_validate(record))
 
+    @router.post("/runs/validate", response_model=ItemResponse[RunValidation])
+    def validate_run(request: RunValidate) -> ItemResponse[RunValidation]:
+        data = request.model_dump()
+        task = data.pop("task")
+        version_id = data.pop("version_id")
+        record = _call(
+            lambda: get_lab().validate_run(version_id, task_name=task, **data)
+        )
+        return ItemResponse(data=RunValidation.model_validate(record))
+
     @router.get("/runs/{run_id}", response_model=ItemResponse[RunResource])
     def run(run_id: str) -> ItemResponse[RunResource]:
         record = _call(lambda: get_lab().db.get("runs", run_id))
@@ -671,6 +708,16 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     @router.post("/runs/{run_id}/cancel", response_model=ItemResponse[RunResource])
     def cancel_run(run_id: str) -> ItemResponse[RunResource]:
         record = _call(lambda: get_lab().cancel_run(run_id))
+        return ItemResponse(data=RunResource.model_validate(record))
+
+    @router.post("/runs/{run_id}/rerun", response_model=ItemResponse[RunResource])
+    def rerun(run_id: str, request: RunRerun) -> ItemResponse[RunResource]:
+        record = _call(lambda: get_lab().rerun(run_id, request.name))
+        return ItemResponse(data=RunResource.model_validate(record))
+
+    @router.post("/runs/{run_id}/refresh", response_model=ItemResponse[RunResource])
+    def refresh_run(run_id: str) -> ItemResponse[RunResource]:
+        record = _call(lambda: get_lab().refresh_run(run_id))
         return ItemResponse(data=RunResource.model_validate(record))
 
     @router.get("/runs/{run_id}/events", response_model=ItemResponse[EventPage])
@@ -685,6 +732,14 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     @router.get("/runs/{run_id}/log", response_class=PlainTextResponse)
     def log(run_id: str, lines: int = Query(default=200, ge=1, le=2000)) -> str:
         return _call(lambda: get_lab().read_log(run_id, lines))
+
+    @router.get("/runs/{run_id}/artifacts", response_model=ListResponse[ArtifactResource])
+    def artifacts(run_id: str) -> ListResponse[ArtifactResource]:
+        records = [
+            ArtifactResource.model_validate(item)
+            for item in _call(lambda: get_lab().list_artifacts(run_id))
+        ]
+        return _page(records, 5000, 0)
 
     @router.get("/runs/{run_id}/artifacts/{artifact_path:path}")
     def artifact(run_id: str, artifact_path: str) -> FileResponse:

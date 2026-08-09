@@ -50,6 +50,25 @@ def test_api_v1_contract_and_errors(tmp_path: Path, monkeypatch) -> None:
     )
     assert probe.json()["data"] == {"ok": True, "executable": "custom-python"}
 
+    monkeypatch.setattr(
+        service,
+        "validate_run",
+        lambda version_id, task_name, **options: {
+            "valid": True,
+            "command": ["python", "train.py"],
+            "params": options["params"],
+            "environment": {"compatible": True},
+            "hardware": {"devices": []},
+            "warnings": [],
+        },
+    )
+    validation = client.post(
+        "/api/v1/runs/validate",
+        json={"version_id": "version", "task": "train", "params": {}},
+    )
+    assert validation.status_code == 200
+    assert validation.json()["data"]["valid"] is True
+
     schema = client.get("/api/v1/openapi.json").json()
     assert schema["info"]["version"] == "1.0.0"
     assert schema["paths"]

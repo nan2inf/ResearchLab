@@ -156,6 +156,9 @@ def test_local_project_version_and_run_end_to_end(tmp_path: Path, monkeypatch) -
     assert {"metrics", "matrix", "table", "artifact"} <= event_types
     checkpoint = service.artifact_path(run["id"], "artifacts/latest.pt")
     assert checkpoint.is_file()
+    artifacts = service.list_artifacts(run["id"])
+    assert any(item["path"] == "artifacts/latest.pt" for item in artifacts)
+    assert service.refresh_run(run["id"])["status"] == "completed"
 
     offline = service.start_run(
         version["id"],

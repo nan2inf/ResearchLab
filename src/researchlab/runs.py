@@ -160,7 +160,14 @@ class LabService:
         self.db = database or Database()
         self._processes: dict[str, subprocess.Popen] = {}
         self._process_lock = threading.Lock()
+        self._remote_monitors: set[str] = set()
+        self._recover_runs()
         self._recover_operations()
+
+    def _recover_runs(self) -> None:
+        for run in self.db.list("runs"):
+            if run["status"] in {"queued", "running"}:
+                self.db.update("runs", run["id"], status="unknown")
 
     def _recover_operations(self) -> None:
         for operation in self.db.list("operations"):
@@ -451,26 +458,19 @@ class LabService:
         python: str | None = None,
         name: str = "",
     ) -> dict:
-        version = self.db.get("versions", version_id)
-        manifest = ProjectManifest.model_validate(version["manifest"])
-        if task_name not in manifest.tasks:
-            raise ValueError(f"unknown task: {task_name}")
-        if backend not in {"cpu", "cuda", "npu"}:
-            raise ValueError("backend must be cpu, cuda, or npu")
-        devices = sorted(set(devices or []))
-        if backend != "cpu" and not devices:
-            raise ValueError("select at least one accelerator")
-        if backend == "npu" and devices != sorted(devices):
-            raise ValueError("Ascend device IDs must be in ascending order")
-
-        server = self.db.get("servers", version["server_id"]) if version["server_id"] else None
-        python = python or ("python3" if server else sys.executable)
-        command, resolved_params = build_command(
-            manifest.tasks[task_name],
-            params,
-            python=python,
+        resolved = self._resolve_run(
+            version_id,
+            task_name=task_name,
+            params=params,
             devices=devices,
+            backend=backend,
+            python=python,
         )
+        version = resolved["version"]
+        server = resolved["server"]
+        devices = resolved["devices"]
+        command = resolved["command"]
+        resolved_params = resolved["params"]
         run_name = timestamp_name(name)
         local_run_path = Path(version["source_path"]).parent / "runs" / run_name
         local_run_path.mkdir(parents=True, exist_ok=False)
@@ -516,6 +516,178 @@ class LabService:
                 finished_at=utc_now(),
             )
             raise
+
+    def _resolve_run(
+        self,
+        version_id: str,
+        *,
+        task_name: str,
+        params: dict[str, Any],
+        devices: list[int] | None,
+        backend: str,
+        python: str | None,
+    ) -> dict:
+        version = self.db.get("versions", version_id)
+        manifest = ProjectManifest.model_validate(version["manifest"])
+        if task_name not in manifest.tasks:
+            raise ValueError(f"unknown task: {task_name}")
+        if backend not in {"cpu", "cuda", "npu"}:
+            raise ValueError("backend must be cpu, cuda, or npu")
+        selected_devices = sorted(set(devices or []))
+        if backend != "cpu" and not selected_devices:
+            raise ValueError("select at least one accelerator")
+        server = self.db.get("servers", version["server_id"]) if version["server_id"] else None
+        selected_python = python or ("python3" if server else sys.executable)
+        command, resolved_params = build_command(
+            manifest.tasks[task_name],
+            params,
+            python=selected_python,
+            devices=selected_devices,
+        )
+        return {
+            "version": version,
+            "manifest": manifest,
+            "server": server,
+            "python": selected_python,
+            "devices": selected_devices,
+            "command": command,
+            "params": resolved_params,
+        }
+
+    def validate_run(
+        self,
+        version_id: str,
+        *,
+        task_name: str,
+        params: dict[str, Any],
+        devices: list[int] | None = None,
+        backend: str = "cpu",
+        python: str | None = None,
+    ) -> dict:
+        resolved = self._resolve_run(
+            version_id,
+            task_name=task_name,
+            params=params,
+            devices=devices,
+            backend=backend,
+            python=python,
+        )
+        executor = executor_for(resolved["server"])
+        environment = probe_environment(executor, resolved["python"])
+        compatibility = check_environment(
+            resolved["manifest"].environment, environment, backend
+        )
+        hardware = hardware_snapshot(executor)
+        warnings: list[str] = []
+        if backend != "cpu":
+            available = {
+                device["id"]: device
+                for device in hardware["devices"]
+                if device["backend"] == backend
+            }
+            missing = [device for device in resolved["devices"] if device not in available]
+            if missing:
+                raise ValueError(f"selected {backend} devices were not detected: {missing}")
+            busy = [device for device in resolved["devices"] if available[device]["busy"]]
+            if busy:
+                warnings.append(f"selected {backend} devices are currently busy: {busy}")
+        warnings.extend(hardware.get("warnings", []))
+        return {
+            "valid": compatibility["compatible"],
+            "command": resolved["command"],
+            "params": resolved["params"],
+            "environment": {**environment, **compatibility},
+            "hardware": hardware,
+            "warnings": warnings,
+        }
+
+    def rerun(self, run_id: str, name: str = "") -> dict:
+        previous = self.db.get("runs", run_id)
+        python = previous["command"][0] if previous["command"] else None
+        return self.start_run(
+            previous["version_id"],
+            task_name=previous["task"],
+            params=previous["params"],
+            devices=previous["devices"],
+            backend=previous["backend"],
+            python=python,
+            name=name or f"rerun-{previous['name']}",
+        )
+
+    def refresh_run(self, run_id: str) -> dict:
+        run = self.db.get("runs", run_id)
+        if run["status"] not in {"queued", "running", "unknown"}:
+            return run
+        if run["server_id"]:
+            server = self.db.get("servers", run["server_id"])
+            executor = executor_for(server)
+            assert isinstance(executor, SSHExecutor)
+            exit_path = str(PurePosixPath(run["remote_path"]) / "exit_code")
+            result = executor.run_script(
+                f"if [ -f {shlex.quote(exit_path)} ]; then cat {shlex.quote(exit_path)}; "
+                f"elif kill -0 {run['pid']} 2>/dev/null; then echo RUNNING; "
+                "else echo LOST; fi"
+            ).check()
+            state = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "LOST"
+        else:
+            with self._process_lock:
+                process = self._processes.get(run_id)
+            if process is not None:
+                code = process.poll()
+                state = "RUNNING" if code is None else str(code)
+            elif run["pid"]:
+                try:
+                    os.kill(run["pid"], 0)
+                    state = "RUNNING"
+                except (OSError, PermissionError):
+                    state = "LOST"
+            else:
+                state = "LOST"
+        if state == "RUNNING":
+            if run["server_id"] and run["pid"]:
+                self._ensure_remote_monitor(
+                    run_id, executor, run["remote_path"], run["pid"]
+                )
+            return self.db.update("runs", run_id, status="running")
+        if re.fullmatch(r"-?\d+", state):
+            exit_code = int(state)
+            return self.db.update(
+                "runs",
+                run_id,
+                status="completed" if exit_code == 0 else "failed",
+                exit_code=exit_code,
+                finished_at=utc_now(),
+            )
+        return self.db.update("runs", run_id, status="unknown")
+
+    def list_artifacts(self, run_id: str) -> list[dict]:
+        run = self.db.get("runs", run_id)
+        if run["server_id"]:
+            server = self.db.get("servers", run["server_id"])
+            executor = executor_for(server)
+            assert isinstance(executor, SSHExecutor)
+            artifact_root = str(PurePosixPath(run["remote_path"]) / "artifacts")
+            result = executor.run_script(
+                f"test ! -d {shlex.quote(artifact_root)} || "
+                f"find {shlex.quote(artifact_root)} -type f -printf '%P\\t%s\\n'"
+            ).check()
+            records = []
+            for line in result.stdout.splitlines():
+                path, separator, size = line.rpartition("\t")
+                if separator and size.isdigit():
+                    records.append({"path": f"artifacts/{path}", "size": int(size)})
+            return records
+        artifact_root = Path(run["run_path"]) / "artifacts"
+        if not artifact_root.is_dir():
+            return []
+        return [
+            {
+                "path": f"artifacts/{path.relative_to(artifact_root).as_posix()}",
+                "size": path.stat().st_size,
+            }
+            for path in sorted(artifact_root.rglob("*"))
+            if path.is_file() and not path.is_symlink()
+        ]
 
     def _runtime_environment(self, run: dict, source: str) -> dict[str, str]:
         environment = {
@@ -618,12 +790,25 @@ class LabService:
             pid=pid,
             started_at=utc_now(),
         )
-        threading.Thread(
-            target=self._monitor_remote,
-            args=(run["id"], executor, remote_run, pid),
-            daemon=True,
-        ).start()
+        self._ensure_remote_monitor(run["id"], executor, remote_run, pid)
         return updated
+
+    def _ensure_remote_monitor(
+        self, run_id: str, executor: SSHExecutor, remote_run: str, pid: int
+    ) -> None:
+        with self._process_lock:
+            if run_id in self._remote_monitors:
+                return
+            self._remote_monitors.add(run_id)
+
+        def monitor() -> None:
+            try:
+                self._monitor_remote(run_id, executor, remote_run, pid)
+            finally:
+                with self._process_lock:
+                    self._remote_monitors.discard(run_id)
+
+        threading.Thread(target=monitor, daemon=True).start()
 
     def _monitor_local(self, run_id: str, process: subprocess.Popen) -> None:
         exit_code = process.wait()
