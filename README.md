@@ -29,6 +29,11 @@ researchlab serve
 Open <http://127.0.0.1:8765>. Import `examples/synthetic-classification`,
 create a source version, and start a local run.
 
+The versioned controller contract is documented in
+[`docs/api-v1.md`](docs/api-v1.md), with generated OpenAPI at
+[`docs/openapi-v1.json`](docs/openapi-v1.json). Front-end work should use only
+`/api/v1/*`; legacy `/api/*` routes remain temporarily for the original UI.
+
 The example also contains an `offline` task. After training, copy the displayed
 `latest.pt` path into that task and choose `evaluate` or `infer`. The result page
 shows evaluation metrics, a confusion matrix, a prediction table, artifacts,
