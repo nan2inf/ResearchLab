@@ -1,0 +1,27 @@
+{
+  "data": {
+    "runs": [],
+    "series": [
+      {
+        "run_id": "run_example_20260809",
+        "split": "train",
+        "metric": "loss",
+        "points": [
+          {"time": 1786257102.0, "epoch": 1, "step": null, "value": 1.24},
+          {"time": 1786257162.0, "epoch": 2, "step": null, "value": 0.87}
+        ],
+        "latest": 0.87
+      },
+      {
+        "run_id": "run_example_augmented",
+        "split": "train",
+        "metric": "loss",
+        "points": [
+          {"time": 1786257105.0, "epoch": 1, "step": null, "value": 1.18},
+          {"time": 1786257165.0, "epoch": 2, "step": null, "value": 0.79}
+        ],
+        "latest": 0.79
+      }
+    ]
+  }
+}

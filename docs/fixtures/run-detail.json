@@ -28,6 +28,8 @@
     ],
     "exit_code": null,
     "error": null,
+    "tags": ["baseline", "classification"],
+    "notes": "Reference run for comparison.",
     "created_at": "2026-08-09T06:30:00Z",
     "started_at": "2026-08-09T06:30:02Z",
     "finished_at": null

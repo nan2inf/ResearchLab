@@ -11,7 +11,15 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-JSON_COLUMNS = {"manifest", "params", "devices", "command", "metadata", "result"}
+JSON_COLUMNS = {
+    "manifest",
+    "params",
+    "devices",
+    "command",
+    "metadata",
+    "result",
+    "tags",
+}
 TABLES = {"servers", "projects", "versions", "runs", "operations"}
 
 
@@ -92,6 +100,8 @@ class Database:
                     command TEXT NOT NULL,
                     exit_code INTEGER,
                     error TEXT,
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    notes TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     finished_at TEXT
@@ -120,6 +130,13 @@ class Database:
             }
             if "shell_init" not in server_columns:
                 db.execute("ALTER TABLE servers ADD COLUMN shell_init TEXT NOT NULL DEFAULT ''")
+            run_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "tags" not in run_columns:
+                db.execute("ALTER TABLE runs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            if "notes" not in run_columns:
+                db.execute("ALTER TABLE runs ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
     @staticmethod
     def new_id() -> str:

@@ -49,13 +49,15 @@ and is also served at `GET /api/v1/openapi.json`.
 | Versions | `GET /api/v1/versions/{id}/environments` | Compatible runtime candidates |
 | Runs | `GET, POST /api/v1/runs` | Filter runs or start a run |
 | Runs | `POST /api/v1/runs/validate` | Resolve parameters, environment, devices and command before launch |
-| Runs | `GET /api/v1/runs/{id}` | Run state and launch metadata |
+| Runs | `POST /api/v1/runs/compare` | Return aligned metric series for 2–20 runs |
+| Runs | `GET, PATCH /api/v1/runs/{id}` | Read state or edit tags/notes |
 | Runs | `POST /api/v1/runs/{id}/cancel` | Stop a local or remote run |
 | Runs | `POST /api/v1/runs/{id}/rerun` | Reproduce a prior run as a new run |
 | Runs | `POST /api/v1/runs/{id}/refresh` | Reconcile an active/lost process state |
 | Results | `GET /api/v1/runs/{id}/events` | Incremental metric/artifact events |
 | Results | `GET /api/v1/runs/{id}/log` | Plain-text log tail |
 | Results | `GET /api/v1/runs/{id}/artifacts` | List downloadable artifacts |
+| Results | `GET /api/v1/runs/{id}/export` | Export metadata, events and artifact manifest as JSON |
 | Results | `GET /api/v1/runs/{id}/artifacts/{path}` | Safely read a run artifact |
 
 The `capabilities` response is authoritative. A client must hide or disable a

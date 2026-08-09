@@ -178,6 +178,16 @@ def test_local_project_version_and_run_end_to_end(tmp_path: Path, monkeypatch) -
         event["type"] for event in service.read_events(offline["id"])["events"]
     }
     assert {"metrics", "matrix"} <= offline_types
+    tagged = service.update_run_metadata(
+        run["id"], tags=["baseline", "baseline", " vision "], notes="reference"
+    )
+    assert tagged["tags"] == ["baseline", "vision"]
+    exported = service.export_run(run["id"])
+    assert exported["schema_version"] == 1
+    assert exported["run"]["notes"] == "reference"
+    comparison = service.compare_runs([run["id"], offline["id"]])
+    assert len(comparison["runs"]) == 2
+    assert comparison["series"]
 
     inference = service.start_run(
         version["id"],

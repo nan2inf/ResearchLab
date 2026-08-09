@@ -497,6 +497,8 @@ class LabService:
                 "command": command,
                 "exit_code": None,
                 "error": None,
+                "tags": [],
+                "notes": "",
                 "started_at": None,
                 "finished_at": None,
             },
@@ -516,6 +518,85 @@ class LabService:
                 finished_at=utc_now(),
             )
             raise
+
+    def update_run_metadata(
+        self, run_id: str, *, tags: list[str] | None = None, notes: str | None = None
+    ) -> dict:
+        changes: dict[str, Any] = {}
+        if tags is not None:
+            cleaned = []
+            for tag in tags:
+                value = tag.strip()
+                if value and value not in cleaned:
+                    cleaned.append(value)
+            changes["tags"] = cleaned
+        if notes is not None:
+            changes["notes"] = notes.strip()
+        if not changes:
+            raise ValueError("at least one run metadata field is required")
+        return self.db.update("runs", run_id, **changes)
+
+    def read_all_events(self, run_id: str, limit: int = 10000) -> list[dict]:
+        cursor = 0
+        events: list[dict] = []
+        while cursor < limit:
+            page_size = min(5000, limit - cursor)
+            page = self.read_events(run_id, cursor, page_size)
+            events.extend(page["events"])
+            consumed = page["next"] - cursor
+            cursor = page["next"]
+            if consumed < page_size:
+                break
+        return events
+
+    def compare_runs(
+        self, run_ids: list[str], metric_names: list[str] | None = None
+    ) -> dict:
+        unique_ids = list(dict.fromkeys(run_ids))
+        if len(unique_ids) < 2 or len(unique_ids) > 20:
+            raise ValueError("select between 2 and 20 distinct runs")
+        selected_metrics = set(metric_names or [])
+        runs = []
+        series = []
+        for run_id in unique_ids:
+            run = self.db.get("runs", run_id)
+            runs.append(run)
+            grouped: dict[tuple[str, str], list[dict]] = {}
+            for event in self.read_all_events(run_id, 20000):
+                if event.get("type") != "metrics":
+                    continue
+                split = str(event.get("split", "unknown"))
+                for name, value in event.get("metrics", {}).items():
+                    if selected_metrics and name not in selected_metrics:
+                        continue
+                    grouped.setdefault((split, name), []).append(
+                        {
+                            "time": event.get("time"),
+                            "epoch": event.get("epoch"),
+                            "step": event.get("step"),
+                            "value": value,
+                        }
+                    )
+            for (split, name), points in grouped.items():
+                series.append(
+                    {
+                        "run_id": run_id,
+                        "split": split,
+                        "metric": name,
+                        "points": points,
+                        "latest": points[-1]["value"],
+                    }
+                )
+        return {"runs": runs, "series": series}
+
+    def export_run(self, run_id: str, event_limit: int = 10000) -> dict:
+        return {
+            "schema_version": 1,
+            "exported_at": utc_now(),
+            "run": self.db.get("runs", run_id),
+            "events": self.read_all_events(run_id, event_limit),
+            "artifacts": self.list_artifacts(run_id),
+        }
 
     def _resolve_run(
         self,

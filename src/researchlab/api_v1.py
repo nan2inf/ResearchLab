@@ -121,6 +121,8 @@ class RunResource(BaseModel):
     command: list[str]
     exit_code: int | None = None
     error: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -251,6 +253,29 @@ class RunRerun(BaseModel):
 class ArtifactResource(BaseModel):
     path: str
     size: int
+
+
+class RunMetadataUpdate(BaseModel):
+    tags: list[str] | None = Field(default=None, max_length=20)
+    notes: str | None = Field(default=None, max_length=10000)
+
+
+class RunCompare(BaseModel):
+    run_ids: list[str] = Field(min_length=2, max_length=20)
+    metrics: list[str] = Field(default_factory=list, max_length=100)
+
+
+class RunComparison(BaseModel):
+    runs: list[RunResource]
+    series: list[dict[str, Any]]
+
+
+class RunExport(BaseModel):
+    schema_version: Literal[1] = 1
+    exported_at: datetime
+    run: RunResource
+    events: list[dict[str, Any]]
+    artifacts: list[ArtifactResource]
 
 
 class EventPage(BaseModel):
@@ -406,7 +431,7 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
                     "source_versions": True,
                     "live_events": True,
                     "artifacts": True,
-                    "run_comparison": False,
+                    "run_comparison": True,
                     "background_operations": True,
                 }
             )
@@ -666,19 +691,37 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     @router.get("/runs", response_model=ListResponse[RunResource])
     def runs(
         project_id: str | None = None,
+        version_id: str | None = None,
+        server_id: str | None = None,
         status: RunStatus | None = None,
         task: str | None = None,
         backend: Literal["cpu", "cuda", "npu"] | None = None,
+        tag: str | None = None,
+        q: str | None = None,
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> ListResponse[RunResource]:
         records = get_lab().db.list("runs", **({"project_id": project_id} if project_id else {}))
+        if version_id:
+            records = [record for record in records if record["version_id"] == version_id]
+        if server_id:
+            records = [record for record in records if record["server_id"] == server_id]
         if status:
             records = [record for record in records if record["status"] == status]
         if task:
             records = [record for record in records if record["task"] == task]
         if backend:
             records = [record for record in records if record["backend"] == backend]
+        if tag:
+            records = [record for record in records if tag in record["tags"]]
+        if q:
+            needle = q.casefold()
+            records = [
+                record
+                for record in records
+                if needle in record["name"].casefold()
+                or needle in record["notes"].casefold()
+            ]
         resources = [RunResource.model_validate(item) for item in records]
         return _page(resources, limit, offset)
 
@@ -700,9 +743,27 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
         )
         return ItemResponse(data=RunValidation.model_validate(record))
 
+    @router.post("/runs/compare", response_model=ItemResponse[RunComparison])
+    def compare_runs(request: RunCompare) -> ItemResponse[RunComparison]:
+        record = _call(
+            lambda: get_lab().compare_runs(request.run_ids, request.metrics)
+        )
+        return ItemResponse(data=RunComparison.model_validate(record))
+
     @router.get("/runs/{run_id}", response_model=ItemResponse[RunResource])
     def run(run_id: str) -> ItemResponse[RunResource]:
         record = _call(lambda: get_lab().db.get("runs", run_id))
+        return ItemResponse(data=RunResource.model_validate(record))
+
+    @router.patch("/runs/{run_id}", response_model=ItemResponse[RunResource])
+    def update_run(
+        run_id: str, request: RunMetadataUpdate
+    ) -> ItemResponse[RunResource]:
+        record = _call(
+            lambda: get_lab().update_run_metadata(
+                run_id, **request.model_dump(exclude_none=True)
+            )
+        )
         return ItemResponse(data=RunResource.model_validate(record))
 
     @router.post("/runs/{run_id}/cancel", response_model=ItemResponse[RunResource])
@@ -740,6 +801,14 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
             for item in _call(lambda: get_lab().list_artifacts(run_id))
         ]
         return _page(records, 5000, 0)
+
+    @router.get("/runs/{run_id}/export", response_model=ItemResponse[RunExport])
+    def export_run(
+        run_id: str,
+        event_limit: int = Query(default=10000, ge=1, le=100000),
+    ) -> ItemResponse[RunExport]:
+        record = _call(lambda: get_lab().export_run(run_id, event_limit))
+        return ItemResponse(data=RunExport.model_validate(record))
 
     @router.get("/runs/{run_id}/artifacts/{artifact_path:path}")
     def artifact(run_id: str, artifact_path: str) -> FileResponse:
