@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from researchlab.config import EnvironmentSpec, build_command, check_environment, load_manifest
+from researchlab.config import (
+    EnvironmentSpec,
+    ParameterSpec,
+    TaskSpec,
+    build_command,
+    check_environment,
+    load_manifest,
+)
 
 
 def test_manifest_builds_python_and_torchrun_commands(tmp_path: Path) -> None:
@@ -46,3 +53,15 @@ def test_environment_compatibility_checks_backend() -> None:
         "compatible": False,
         "issues": ["CUDA is unavailable in this environment"],
     }
+
+
+def test_optional_empty_path_is_not_added_to_command() -> None:
+    task = TaskSpec(
+        entrypoint="train.py",
+        parameters={"resume": ParameterSpec(type="path")},
+    )
+
+    command, resolved = build_command(task, {"resume": ""}, python="python")
+
+    assert command == ["python", "train.py"]
+    assert resolved == {"resume": None}

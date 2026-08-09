@@ -34,6 +34,11 @@ The example also contains an `offline` task. After training, copy the displayed
 shows evaluation metrics, a confusion matrix, a prediction table, artifacts,
 the actual run directory, and the launch command.
 
+`examples/ibetmc-ib` is a migrated real-world multi-view classification
+experiment. It demonstrates how a legacy project can keep its custom model and
+training loop while exposing paths and parameters to ResearchLab. Its dataset
+remains outside the repository and is selected in the web UI.
+
 Application state defaults to `~/.researchlab`. Override it for testing or
 portable use:
 

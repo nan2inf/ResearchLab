@@ -1,0 +1,94 @@
+schema_version: 1
+name: ibetmc-ib
+description: 从旧 Classification 工作目录迁移的多视图证据分类代表实验。
+environment:
+  python: ">=3.10"
+  torch: ">=2.0"
+exclude:
+  - "*.mat"
+  - logs
+  - res
+  - res2
+tasks:
+  train:
+    entrypoint: train.py
+    launcher: python
+    parameters:
+      data_path:
+        type: path
+        required: true
+        help: 包含 X_train、X_test、Y_train、Y_test 的 MATLAB 文件绝对路径
+      epochs:
+        type: int
+        default: 500
+        min: 1
+      eval_every:
+        type: int
+        default: 1
+        min: 1
+        help: 每隔多少轮运行一次验证
+      batch_size:
+        type: int
+        default: 64
+        min: 1
+      learning_rate:
+        type: float
+        default: 0.001
+        min: 0.0000001
+      lr_factor:
+        type: float
+        default: 0.5
+        min: 0.0001
+        max: 1
+      lr_patience:
+        type: int
+        default: 5
+        min: 0
+      patience:
+        type: int
+        default: 20
+        min: 1
+      gradient_accumulation_steps:
+        type: int
+        default: 3
+        min: 1
+      dropout:
+        type: float
+        default: 0.1
+        min: 0
+        max: 1
+      annealing_epoch:
+        type: int
+        default: 10
+        min: 1
+      attention_embed_dim:
+        type: int
+        default: 512
+        min: 8
+      attention_heads:
+        type: int
+        default: 8
+        min: 1
+      ib_bottleneck_dim:
+        type: int
+        default: 128
+        min: 1
+      preload_device:
+        type: bool
+        default: true
+        help: 在训练前将全部视图数据加载到所选设备
+      num_workers:
+        type: int
+        default: 0
+        min: 0
+      seed:
+        type: int
+        default: 1
+      resume:
+        type: path
+        help: 可选的 checkpoint.pt 路径
+      max_batches:
+        type: int
+        default: 0
+        min: 0
+        help: 0 表示全部批次；非零值仅用于迁移烟雾测试

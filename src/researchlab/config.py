@@ -90,6 +90,10 @@ def _coerce_value(name: str, spec: ParameterSpec, value: Any) -> Any:
         value = spec.default
     if value is None:
         return None
+    if spec.type == "path" and isinstance(value, str) and not value.strip():
+        if spec.required:
+            raise ValueError(f"missing required parameter: {name}")
+        return None
     converters = {"int": int, "float": float, "str": str, "path": str, "choice": str}
     if spec.type == "bool":
         if isinstance(value, str):
