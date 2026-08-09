@@ -39,9 +39,6 @@ DEFAULT_EXCLUDES = [
     "artifacts",
     "checkpoints",
     "*.pyc",
-    "*.pt",
-    "*.pth",
-    "*.ckpt",
 ]
 
 

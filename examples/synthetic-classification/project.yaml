@@ -1,6 +1,6 @@
 schema_version: 1
 name: synthetic-classification
-description: 无需下载数据的 PyTorch 分类示例，演示实时指标、多卡、在线增强与显存预加载。
+description: 无需下载数据的 PyTorch 分类示例，演示训练、离线评测/推理、实时指标、多卡、在线增强与显存预加载。
 environment:
   python: ">=3.10"
   torch: ">=2.0"
@@ -43,6 +43,30 @@ tasks:
         type: bool
         default: false
         help: 在训练前将全部数据加载到所选设备
+      seed:
+        type: int
+        default: 7
+  offline:
+    entrypoint: offline.py
+    launcher: python
+    parameters:
+      checkpoint:
+        type: path
+        required: true
+        help: 已有训练实验生成的 latest.pt 绝对路径
+      mode:
+        type: choice
+        default: evaluate
+        choices: [evaluate, infer]
+        help: evaluate 输出指标与混淆矩阵；infer 输出预测表和 JSON 文件
+      batch_size:
+        type: int
+        default: 128
+        min: 1
+      samples:
+        type: int
+        default: 4096
+        min: 128
       seed:
         type: int
         default: 7

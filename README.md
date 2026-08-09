@@ -29,6 +29,11 @@ researchlab serve
 Open <http://127.0.0.1:8765>. Import `examples/synthetic-classification`,
 create a source version, and start a local run.
 
+The example also contains an `offline` task. After training, copy the displayed
+`latest.pt` path into that task and choose `evaluate` or `infer`. The result page
+shows evaluation metrics, a confusion matrix, a prediction table, artifacts,
+the actual run directory, and the launch command.
+
 Application state defaults to `~/.researchlab`. Override it for testing or
 portable use:
 
@@ -76,6 +81,10 @@ user's OpenSSH configuration and SSH Agent. ResearchLab stores an SSH alias,
 never private-key contents or passwords. Source versions are immutable and
 remote commands run as the connected Linux user.
 
+Model weights are not silently removed from a source version. Put large or
+machine-specific files in `.gitignore` or the manifest's `exclude` list when
+they should stay outside code synchronization.
+
 ## Why not wrap an existing platform?
 
 MLflow and Aim are strong experiment trackers. ClearML and Determined add
@@ -83,4 +92,3 @@ agents, services, and cluster scheduling. Ray and Lightning provide more
 opinionated training runtimes. ResearchLab targets a smaller gap: a
 single-user local control panel that uploads ordinary PyTorch projects through
 SSH and works without installing a permanent service on the training server.
-

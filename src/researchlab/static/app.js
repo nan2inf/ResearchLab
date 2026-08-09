@@ -391,15 +391,29 @@ function renderMetrics() {
 
 function renderResults(log) {
   const root = $("#resultContent");
+  const run = state.selectedRun;
+  const runPath = run.remote_path || run.run_path;
   const matrices = state.events.filter(event => event.type === "matrix");
   const tables = state.events.filter(event => event.type === "table");
   const artifacts = state.events.filter(event => event.type === "artifact");
   root.className = "result-grid";
   root.innerHTML = `
+    <section class="result-section"><h3>运行信息</h3><div class="table-wrap"><table class="data-table"><tbody>
+      <tr><th>实验目录</th><td><code>${escapeHtml(runPath)}</code></td></tr>
+      <tr><th>启动命令</th><td><code>${escapeHtml((run.command || []).join(" "))}</code></td></tr>
+      <tr><th>设备</th><td>${escapeHtml(run.backend.toUpperCase())}${run.devices?.length ? ` · ${escapeHtml(run.devices.join(","))}` : ""}</td></tr>
+      <tr><th>状态</th><td>${escapeHtml(statusLabel[run.status] || run.status)}</td></tr>
+    </tbody></table></div></section>
     <section class="result-section"><h3>指标曲线</h3><canvas id="resultMetricChart" height="250"></canvas><div id="resultMetricLegend" class="legend"></div></section>
     ${matrices.map(renderMatrix).join("")}
     ${tables.map(renderTable).join("")}
-    ${artifacts.length ? `<section class="result-section"><h3>实验产物</h3><div class="artifact-grid">${artifacts.map(artifact => artifact.artifact_type === "image" ? `<figure><img src="/api/runs/${state.selectedRun.id}/artifacts/${encodeURI(artifact.path)}" alt="${escapeHtml(artifact.name)}" /><figcaption>${escapeHtml(artifact.name)}</figcaption></figure>` : `<a class="button ghost" href="/api/runs/${state.selectedRun.id}/artifacts/${encodeURI(artifact.path)}">${escapeHtml(artifact.name)}</a>`).join("")}</div></section>` : ""}
+    ${artifacts.length ? `<section class="result-section"><h3>实验产物</h3><div class="artifact-grid">${artifacts.map(artifact => {
+      const path = `${runPath.replace(/[\\/]+$/, "")}/${artifact.path}`;
+      const link = `/api/runs/${state.selectedRun.id}/artifacts/${encodeURI(artifact.path)}`;
+      return artifact.artifact_type === "image"
+        ? `<figure><img src="${link}" alt="${escapeHtml(artifact.name)}" /><figcaption>${escapeHtml(artifact.name)}<code>${escapeHtml(path)}</code></figcaption></figure>`
+        : `<div class="artifact-file"><a class="button ghost" href="${link}">${escapeHtml(artifact.name)}</a><code>${escapeHtml(path)}</code></div>`;
+    }).join("")}</div></section>` : ""}
     <section class="result-section"><h3>训练日志</h3><pre>${escapeHtml(log || "暂无日志输出。")}</pre></section>`;
   const original = $("#metricChart");
   const result = $("#resultMetricChart");

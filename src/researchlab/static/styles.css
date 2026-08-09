@@ -151,6 +151,8 @@ h3 { margin-bottom: 0; }
 .result-section h3 { margin-bottom: 12px; font-size: 13px; }
 .artifact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 9px; }
 .artifact-grid img { width: 100%; border-radius: 7px; display: block; background: #080c13; }
+.artifact-grid figcaption, .artifact-file { display: grid; gap: 6px; margin-top: 6px; }
+.artifact-grid code { overflow-wrap: anywhere; font-size: 9px; color: var(--muted); }
 .matrix { display: grid; gap: 3px; width: min(100%, 460px); }
 .matrix-cell { aspect-ratio: 1.35; min-width: 24px; display: grid; place-items: center; border-radius: 4px; color: white; font: 10px ui-monospace, monospace; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
