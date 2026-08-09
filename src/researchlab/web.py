@@ -9,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .api_v1 import create_router as create_v1_router
+from .api_v1 import register_error_handlers
 from .runs import LabService
 from .system import discover_environments, executor_for, hardware_snapshot, require_local_tools
 
@@ -72,6 +74,9 @@ def create_app(service: LabService | None = None) -> FastAPI:
 
     def lab() -> LabService:
         return app.state.lab
+
+    register_error_handlers(app)
+    app.include_router(create_v1_router(lab))
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:

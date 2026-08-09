@@ -130,6 +130,15 @@ def _parse_csv_line(line: str) -> list[str]:
     return [part.strip() for part in line.split(",")]
 
 
+def _number(value: str, default: float | None = 0.0) -> float | None:
+    if value.strip().lower() in {"", "n/a", "[n/a]", "na", "none", "unknown"}:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def parse_nvidia_smi(gpus: str, processes: str = "", users: dict[int, str] | None = None) -> list[dict]:
     users = users or {}
     devices: list[dict] = []
@@ -141,15 +150,19 @@ def parse_nvidia_smi(gpus: str, processes: str = "", users: dict[int, str] | Non
         if len(parts) < 7:
             continue
         index, uuid, name, total, used, utilization, temperature = parts[:7]
+        try:
+            device_id = int(index)
+        except ValueError:
+            continue
         device = {
             "backend": "cuda",
-            "id": int(index),
+            "id": device_id,
             "uuid": uuid,
             "name": name,
-            "memory_total_mb": int(float(total)),
-            "memory_used_mb": int(float(used)),
-            "utilization_percent": float(utilization),
-            "temperature_c": float(temperature),
+            "memory_total_mb": int(_number(total) or 0),
+            "memory_used_mb": int(_number(used) or 0),
+            "utilization_percent": _number(utilization) or 0.0,
+            "temperature_c": _number(temperature, None),
             "processes": [],
         }
         devices.append(device)
@@ -161,13 +174,16 @@ def parse_nvidia_smi(gpus: str, processes: str = "", users: dict[int, str] | Non
         if len(parts) < 4 or parts[0] not in by_uuid:
             continue
         uuid, pid, name, memory = parts[:4]
-        pid_value = int(pid)
+        try:
+            pid_value = int(pid)
+        except ValueError:
+            continue
         by_uuid[uuid]["processes"].append(
             {
                 "pid": pid_value,
                 "user": users.get(pid_value),
                 "name": name,
-                "memory_mb": int(float(memory)),
+                "memory_mb": int(_number(memory) or 0),
             }
         )
     for device in devices:
