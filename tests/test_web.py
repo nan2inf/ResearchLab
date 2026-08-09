@@ -18,7 +18,7 @@ def test_local_web_app_serves_ui_and_api(tmp_path: Path) -> None:
     assert "ResearchLab" in page.text
 
 
-def test_api_v1_contract_and_errors(tmp_path: Path) -> None:
+def test_api_v1_contract_and_errors(tmp_path: Path, monkeypatch) -> None:
     service = LabService(Database(tmp_path / "state" / "app.db"))
     client = TestClient(create_app(service))
 
@@ -39,6 +39,16 @@ def test_api_v1_contract_and_errors(tmp_path: Path) -> None:
     invalid = client.post("/api/v1/projects", json={"source_path": ""})
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "request_validation_failed"
+
+    monkeypatch.setattr(
+        service,
+        "probe_environment",
+        lambda server_id, python: {"ok": True, "executable": python},
+    )
+    probe = client.post(
+        "/api/v1/local/environments/probe", json={"python": "custom-python"}
+    )
+    assert probe.json()["data"] == {"ok": True, "executable": "custom-python"}
 
     schema = client.get("/api/v1/openapi.json").json()
     assert schema["info"]["version"] == "1.0.0"

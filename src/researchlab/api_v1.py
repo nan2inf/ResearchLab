@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import sqlite3
 from typing import Any, Callable, Generic, Literal, TypeVar
 
 from fastapi import APIRouter, FastAPI, Query, Request
@@ -137,6 +138,24 @@ class ServerCreate(BaseModel):
     shell_init: str = Field(default="", max_length=1000)
 
 
+class ServerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    ssh_alias: str | None = Field(default=None, min_length=1, max_length=120)
+    remote_root: str | None = Field(default=None, min_length=1, max_length=500)
+    shell_init: str | None = Field(default=None, max_length=1000)
+
+
+class EnvironmentProbe(BaseModel):
+    python: str = Field(min_length=1, max_length=1000)
+
+
+class CondaEnvironmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    python_version: str = Field(default="3.11", pattern=r"^3\.\d{1,2}$")
+    pip_packages: list[str] = Field(default_factory=list, max_length=100)
+    install_command: str = Field(default="", max_length=4000)
+
+
 class ProjectCreate(BaseModel):
     source_path: str = Field(min_length=1, max_length=1000)
 
@@ -188,6 +207,8 @@ def _as_v1_error(exc: Exception) -> V1Error:
         return V1Error(404, "file_not_found", message)
     if isinstance(exc, TimeoutError):
         return V1Error(504, "timeout", message, retryable=True)
+    if isinstance(exc, sqlite3.IntegrityError):
+        return V1Error(409, "conflict", message)
     if isinstance(exc, ValueError):
         return V1Error(400, "invalid_request", message)
     if isinstance(exc, RuntimeError):
@@ -351,9 +372,55 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
         record = _call(lambda: get_lab().db.get("servers", server_id))
         return ItemResponse(data=ServerResource.model_validate(record))
 
+    @router.patch("/servers/{server_id}", response_model=ItemResponse[ServerResource])
+    def update_server(
+        server_id: str, request: ServerUpdate
+    ) -> ItemResponse[ServerResource]:
+        changes = request.model_dump(exclude_none=True)
+        if not changes:
+            raise V1Error(400, "invalid_request", "At least one field must be supplied.")
+        record = _call(lambda: get_lab().update_server(server_id, **changes))
+        return ItemResponse(data=ServerResource.model_validate(record))
+
     @router.get("/servers/{server_id}/diagnostics", response_model=ItemResponse[dict[str, Any]])
     def diagnostics(server_id: str) -> ItemResponse[dict[str, Any]]:
         return ItemResponse(data=_call(lambda: get_lab().server_diagnostics(server_id)))
+
+    @router.get("/servers/{server_id}/environments", response_model=ListResponse[dict[str, Any]])
+    def server_environments(server_id: str) -> ListResponse[dict[str, Any]]:
+        records = _call(
+            lambda: discover_environments(
+                executor_for(get_lab().db.get("servers", server_id))
+            )
+        )
+        return _page(records, 200, 0)
+
+    @router.post(
+        "/servers/{server_id}/environments/probe",
+        response_model=ItemResponse[dict[str, Any]],
+    )
+    def probe_server_environment(
+        server_id: str, request: EnvironmentProbe
+    ) -> ItemResponse[dict[str, Any]]:
+        return ItemResponse(
+            data=_call(lambda: get_lab().probe_environment(server_id, request.python))
+        )
+
+    @router.post(
+        "/servers/{server_id}/environments",
+        response_model=ItemResponse[dict[str, Any]],
+        status_code=201,
+    )
+    def create_server_environment(
+        server_id: str, request: CondaEnvironmentCreate
+    ) -> ItemResponse[dict[str, Any]]:
+        return ItemResponse(
+            data=_call(
+                lambda: get_lab().create_conda_environment(
+                    server_id, **request.model_dump()
+                )
+            )
+        )
 
     @router.get("/local/diagnostics", response_model=ItemResponse[dict[str, Any]])
     def local_diagnostics() -> ItemResponse[dict[str, Any]]:
@@ -367,6 +434,28 @@ def create_router(get_lab: Callable[[], LabService]) -> APIRouter:
     def local_environments() -> ListResponse[dict[str, Any]]:
         records = _call(lambda: discover_environments(executor_for(None)))
         return _page(records, 200, 0)
+
+    @router.post(
+        "/local/environments/probe", response_model=ItemResponse[dict[str, Any]]
+    )
+    def probe_local_environment(request: EnvironmentProbe) -> ItemResponse[dict[str, Any]]:
+        return ItemResponse(
+            data=_call(lambda: get_lab().probe_environment(None, request.python))
+        )
+
+    @router.post(
+        "/local/environments",
+        response_model=ItemResponse[dict[str, Any]],
+        status_code=201,
+    )
+    def create_local_environment(
+        request: CondaEnvironmentCreate,
+    ) -> ItemResponse[dict[str, Any]]:
+        return ItemResponse(
+            data=_call(
+                lambda: get_lab().create_conda_environment(None, **request.model_dump())
+            )
+        )
 
     @router.get("/projects", response_model=ListResponse[ProjectResource])
     def projects(

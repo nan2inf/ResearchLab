@@ -25,9 +25,14 @@ and is also served at `GET /api/v1/openapi.json`.
 | Local host | `GET /api/v1/local/diagnostics` | Connection, hardware, environments |
 | Local host | `GET /api/v1/local/hardware` | CPU, CUDA and Ascend status |
 | Local host | `GET /api/v1/local/environments` | Conda/system Python probes |
+| Local host | `POST /api/v1/local/environments/probe` | Probe a user-specified Python |
+| Local host | `POST /api/v1/local/environments` | Create an isolated Conda environment |
 | Servers | `GET, POST /api/v1/servers` | List and register SSH servers |
-| Servers | `GET /api/v1/servers/{id}` | Server configuration |
+| Servers | `GET, PATCH /api/v1/servers/{id}` | Read or update server configuration |
 | Servers | `GET /api/v1/servers/{id}/diagnostics` | Remote Linux diagnostics |
+| Servers | `GET /api/v1/servers/{id}/environments` | Remote Conda/system Python probes |
+| Servers | `POST /api/v1/servers/{id}/environments/probe` | Probe a remote Python path |
+| Servers | `POST /api/v1/servers/{id}/environments` | Create a remote Conda environment |
 | Projects | `GET, POST /api/v1/projects` | List and import projects |
 | Projects | `GET /api/v1/projects/{id}` | Project manifest |
 | Versions | `GET /api/v1/versions` | List immutable versions |

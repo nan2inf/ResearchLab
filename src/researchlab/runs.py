@@ -129,22 +129,43 @@ class LabService:
         remote_root: str,
         shell_init: str = "",
     ) -> dict:
+        values = self._validated_server(
+            name=name,
+            ssh_alias=ssh_alias,
+            remote_root=remote_root,
+            shell_init=shell_init,
+        )
+        return self.db.insert("servers", values)
+
+    def update_server(self, server_id: str, **changes: str) -> dict:
+        current = self.db.get("servers", server_id)
+        values = self._validated_server(
+            name=changes.get("name", current["name"]),
+            ssh_alias=changes.get("ssh_alias", current["ssh_alias"]),
+            remote_root=changes.get("remote_root", current["remote_root"]),
+            shell_init=changes.get("shell_init", current["shell_init"]),
+        )
+        return self.db.update("servers", server_id, **values)
+
+    @staticmethod
+    def _validated_server(
+        *, name: str, ssh_alias: str, remote_root: str, shell_init: str
+    ) -> dict[str, str]:
         path = PurePosixPath(remote_root)
         if not path.is_absolute() or ".." in path.parts:
             raise ValueError("remote_root must be an absolute Linux path")
+        if not name.strip():
+            raise ValueError("server name cannot be blank")
         executor = SSHExecutor(ssh_alias, shell_init)
         connection = test_connection(executor)
         if not connection["ok"]:
             raise RuntimeError("SSH connection test failed")
-        return self.db.insert(
-            "servers",
-            {
-                "name": name.strip(),
-                "ssh_alias": ssh_alias,
-                "remote_root": str(path),
-                "shell_init": shell_init.strip(),
-            },
-        )
+        return {
+            "name": name.strip(),
+            "ssh_alias": ssh_alias,
+            "remote_root": str(path),
+            "shell_init": shell_init.strip(),
+        }
 
     def server_diagnostics(self, server_id: str | None = None) -> dict:
         server = self.db.get("servers", server_id) if server_id else None
@@ -154,6 +175,13 @@ class LabService:
             "hardware": hardware_snapshot(executor),
             "environments": discover_environments(executor),
         }
+
+    def probe_environment(self, server_id: str | None, python: str) -> dict:
+        server = self.db.get("servers", server_id) if server_id else None
+        python = python.strip()
+        if not python or "\n" in python or "\r" in python:
+            raise ValueError("python executable must be a non-empty single-line path")
+        return probe_environment(executor_for(server), python)
 
     def version_environments(self, version_id: str, backend: str = "cpu") -> list[dict]:
         version = self.db.get("versions", version_id)
@@ -579,35 +607,70 @@ class LabService:
 
     def create_conda_environment(
         self,
-        server_id: str,
+        server_id: str | None,
         *,
         name: str,
         python_version: str = "3.11",
+        pip_packages: list[str] | None = None,
         install_command: str = "",
     ) -> dict:
-        server = self.db.get("servers", server_id)
+        server = self.db.get("servers", server_id) if server_id else None
         executor = executor_for(server)
-        assert isinstance(executor, SSHExecutor)
-        env_path = PurePosixPath(server["remote_root"]) / ".envs" / slugify(name)
         if not re.fullmatch(r"3\.\d{1,2}", python_version):
             raise ValueError("unsupported Python version")
-        script = (
-            f"test ! -e {shlex.quote(str(env_path))} && "
-            f"mkdir -p {shlex.quote(str(env_path.parent))} && "
-            f"conda create --prefix {shlex.quote(str(env_path))} "
-            f"python={shlex.quote(python_version)} -y"
-        )
-        executor.run_script(script, timeout=1800).check()
-        if install_command.strip():
-            if "\n" in install_command or "\r" in install_command:
-                raise ValueError("install command must be one line")
+        pip_packages = pip_packages or []
+        if any(not package.strip() or "\n" in package or "\r" in package for package in pip_packages):
+            raise ValueError("pip package specifications must be non-empty single-line values")
+        if "\n" in install_command or "\r" in install_command:
+            raise ValueError("install command must be one line")
+
+        if server:
+            assert isinstance(executor, SSHExecutor)
+            env_path: Path | PurePosixPath = (
+                PurePosixPath(server["remote_root"]) / ".envs" / slugify(name)
+            )
+            script = (
+                f"test ! -e {shlex.quote(str(env_path))} || "
+                f"{{ printf 'environment already exists\\n' >&2; exit 2; }}; "
+                f"mkdir -p {shlex.quote(str(env_path.parent))} && "
+                f"conda create --prefix {shlex.quote(str(env_path))} "
+                f"python={shlex.quote(python_version)} -y"
+            )
+            executor.run_script(script, timeout=1800).check()
             python_path = str(env_path / "bin" / "python")
-            command = install_command.replace("{python}", shlex.quote(python_path))
+            if pip_packages:
+                executor.run(
+                    [python_path, "-m", "pip", "install", *pip_packages], timeout=1800
+                ).check()
+        else:
+            env_path = app_home() / ".envs" / slugify(name)
+            if env_path.exists():
+                raise ValueError(f"environment already exists: {env_path}")
+            env_path.parent.mkdir(parents=True, exist_ok=True)
+            executor.run(
+                ["conda", "create", "--prefix", str(env_path), f"python={python_version}", "-y"],
+                timeout=1800,
+            ).check()
+            python_path = str(
+                env_path / ("python.exe" if os.name == "nt" else "bin/python")
+            )
+            if pip_packages:
+                executor.run(
+                    [python_path, "-m", "pip", "install", *pip_packages], timeout=1800
+                ).check()
+
+        if install_command.strip():
+            quoted_python = (
+                shlex.quote(python_path)
+                if server or os.name != "nt"
+                else subprocess.list2cmdline([python_path])
+            )
+            command = install_command.replace("{python}", quoted_python)
             executor.run_script(command, timeout=1800).check()
-        return probe_environment(executor, str(env_path / "bin" / "python"))
+        return {"name": slugify(name), "prefix": str(env_path), **probe_environment(executor, python_path)}
 
 
-def probe_environment(executor: SSHExecutor, python: str) -> dict:
+def probe_environment(executor, python: str) -> dict:
     from .system import probe_python
 
     return probe_python(executor, python)

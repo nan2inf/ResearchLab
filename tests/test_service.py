@@ -1,8 +1,10 @@
 import time
 from pathlib import Path
 
+import researchlab.runs as runs_module
 from researchlab.runs import LabService, create_source_archive, extract_source_archive
 from researchlab.store import Database
+from researchlab.system import CommandResult
 
 
 def wait_for_run(service: LabService, run: dict) -> dict:
@@ -25,6 +27,54 @@ def test_source_versions_keep_model_weights_unless_excluded(tmp_path: Path) -> N
     extract_source_archive(archive, extracted)
 
     assert (extracted / "model.pt").read_bytes() == b"weights"
+
+
+def test_local_conda_environment_uses_isolated_prefix(tmp_path: Path, monkeypatch) -> None:
+    class FakeExecutor:
+        is_remote = False
+
+        def __init__(self) -> None:
+            self.commands: list[list[str]] = []
+
+        def run(self, command, timeout=30):
+            self.commands.append(list(command))
+            if "-c" in command:
+                return CommandResult(
+                    0,
+                    'RESEARCHLAB_PROBE={"python":"3.11.9","executable":"fake",'
+                    '"platform":"test","torch":null,"cuda_available":false,'
+                    '"cuda_devices":0,"npu_available":false,"npu_devices":0}\n',
+                    "",
+                )
+            return CommandResult(0, "", "")
+
+        def run_script(self, script, timeout=30):
+            raise AssertionError("no install command was requested")
+
+    fake = FakeExecutor()
+    monkeypatch.setattr(runs_module, "executor_for", lambda server: fake)
+    monkeypatch.setattr(runs_module, "app_home", lambda: tmp_path / "state")
+    service = LabService(Database(tmp_path / "app.db"))
+
+    environment = service.create_conda_environment(
+        None,
+        name="Vision Lab",
+        python_version="3.11",
+        pip_packages=["torch>=2.7"],
+    )
+
+    expected_prefix = tmp_path / "state" / ".envs" / "vision-lab"
+    assert fake.commands[0] == [
+        "conda",
+        "create",
+        "--prefix",
+        str(expected_prefix),
+        "python=3.11",
+        "-y",
+    ]
+    assert fake.commands[1][-2:] == ["install", "torch>=2.7"]
+    assert environment["prefix"] == str(expected_prefix)
+    assert environment["ok"] is True
 
 
 def test_local_project_version_and_run_end_to_end(tmp_path: Path, monkeypatch) -> None:
